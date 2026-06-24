@@ -1,6 +1,6 @@
 # codex-quota-e1002-firmware
 
-这是 Seeed Studio reTerminal E1002 的自定义 Arduino/PlatformIO 固件。设备从 Mac 局域网服务获取 Codex 额度 JSON 和今日食谱 raw 图片，用 Seeed_GFX 直接绘制到 800 x 480 六色电子纸，然后进入 deep sleep。
+这是 Seeed Studio reTerminal E1002 的自定义 Arduino/PlatformIO 固件。设备从 Mac 局域网服务获取 Codex 额度 JSON，以及可选模块需要的食谱图片、天气 JSON，用 Seeed_GFX 直接绘制到 800 x 480 六色电子纸，然后进入 deep sleep。
 
 固件不运行 HTML、CSS、JavaScript、iframe 或浏览器。唯一的 HTML 是设备本地 SoftAP 配网页面，用于输入 Wi-Fi 和 Mac API URL。
 
@@ -40,8 +40,9 @@ PlatformIO 只保留一个正式 env：
 | Feature | `0` | `1` |
 | --- | --- | --- |
 | `FEATURE_MEAL` | 只包含 Codex 额度页 | Codex 额度页 + 今日食谱页 |
+| `FEATURE_WEATHER` | 不包含天气页 | 增加天气页 |
 
-默认 `FEATURE_MEAL=1`。
+默认 `FEATURE_MEAL=1`，`FEATURE_WEATHER=0`。
 
 ## 交互式选择
 
@@ -57,9 +58,10 @@ scripts/install.sh
 [x] Wi-Fi setup portal
 [x] Deep sleep and three-button navigation
 [ ] Daily meal page
+[ ] Weather page
 ```
 
-用空格切换 `Daily meal page`，Enter 确认。脚本最后可以选择：
+用 Up/Down 或 `1`/`2` 选择模块，用空格切换，Enter 确认。脚本最后可以选择：
 
 - 只保存选择。
 - 构建固件。
@@ -87,6 +89,8 @@ scripts/build.sh
 ```bash
 FEATURE_MEAL=0 scripts/build.sh
 FEATURE_MEAL=1 scripts/build.sh
+FEATURE_MEAL=0 FEATURE_WEATHER=1 scripts/build.sh
+FEATURE_MEAL=1 FEATURE_WEATHER=1 scripts/build.sh
 ```
 
 ## 烧录和串口
@@ -108,14 +112,17 @@ scripts/monitor.sh
 
 ## 页面
 
-当前页面注册表由 `FEATURE_MEAL` 决定，但 PlatformIO env 始终是 `reterminal_e1002`：
+当前页面注册表由 `FEATURE_MEAL` 和 `FEATURE_WEATHER` 决定，但 PlatformIO env 始终是 `reterminal_e1002`：
 
 | Slot | PageId | RefreshPolicy | 内容 |
 | --- | --- | --- | --- |
 | 1 | `CodexQuota` | `PeriodicData` | Codex 额度、套餐、token 用量和电量 |
 | 2 | `TodayMeal` | `PeriodicData` | 今日食谱 raw 图片，仅在 `FEATURE_MEAL=1` 时注册 |
+| 2 或 3 | `Weather` | `PeriodicData` | 天气页，仅在 `FEATURE_WEATHER=1` 时注册 |
 
-所有页面右下角显示 `P1/2`、`P2/2` 或 `P1/1` 形式的页码。页码由 `PageManager` 根据页面注册表生成，不在页面里硬编码。
+页面顺序稳定：Codex 永远是第 1 页；食谱启用时排在 Codex 后面；天气启用时排在最后。只启用天气时，天气是 `P2/2`；同时启用食谱和天气时，天气是 `P3/3`。
+
+所有页面右下角显示 `P1/2`、`P2/2`、`P3/3` 或 `P1/1` 形式的页码。页码由 `PageManager` 根据页面注册表生成，不在页面里硬编码。
 
 Page 1 显示：
 
@@ -134,11 +141,23 @@ Page 1 显示：
 
 关闭每日食谱时：
 
-- 页面注册表只有 Page 1。
-- 页码显示 `P1/1`。
-- 左键连按 2 次会判定为无效页码。
-- 中键短按或长按都不会切到食谱页。
+- 页面注册表里没有 `TodayMeal`。
 - 固件不会请求 `/meal/today` 或 `/meal/today.raw`。
+
+启用天气时，天气页包含 3 个内部页：
+
+- `W1/3`：当前天气、体感、湿度、风、AQI、能见度、云量、本地雨强、PM2.5、UV。
+- `W2/3`：今日高低温、降水概率、降水量、日出日落、气压、舒适指数、穿衣指数、感冒风险。
+- `W3/3`：未来小时预报、未来几天摘要和附近降水信息。
+
+彩云天气增强字段会分散显示在前三个内部页；Open-Meteo 等兜底源缺失的字段显示为 `--`，不会单独出现一整页空白详情页。
+
+关闭天气时：
+
+- 页面注册表里没有 `Weather`。
+- 固件不会请求 `/weather?slot=N`。
+
+如果关闭所有可选模块，页面注册表只有 Codex，页码显示 `P1/1`，左键连按 2 次会判定为无效页码。
 
 ## 按键
 
@@ -147,13 +166,13 @@ Page 1 显示：
 | 物理按键 | Seeed 名称 | GPIO | 行为 |
 | --- | --- | --- | --- |
 | 右侧绿色键 | KEY0 | GPIO3 | 刷新当前页 |
-| 中键 | KEY1 | GPIO4 | 短按切换下一大页；启用食谱时长按切换当前食谱内部页 |
+| 中键 | KEY1 | GPIO4 | 短按切换下一大页；长按切换当前模块内部页 |
 | 左键 | KEY2 | GPIO5 | 连按 N 次直达第 N 页；长按约 1.2 秒进入配网 |
 
 参数：
 
 - 消抖：`40 ms`。
-- 中键长按：`900 ms`，到时间即触发，不需要等松手；关闭食谱模块时退化为普通下一页动作。
+- 中键长按：`900 ms`，到时间即触发，不需要等松手；当前页没有内部页时退化为普通下一页动作。
 - 左键多击间隔：`1400 ms`。
 - 左键多击总超时：`6000 ms`。
 - 进入配网长按：约 `1200 ms`。
@@ -169,6 +188,11 @@ FEATURE_MEAL=1:
   左键 1 次 -> Page 1
   左键 2 次 -> Page 2
   左键 3 次 -> 当前只有两页，判定无效并保持原页
+
+FEATURE_MEAL=1, FEATURE_WEATHER=1:
+  左键 1 次 -> Codex
+  左键 2 次 -> Meal
+  左键 3 次 -> Weather
 ```
 
 ## 配网
@@ -229,7 +253,13 @@ GET http://<Mac-IP>:19527/api/device/<deviceToken>/meal/today?slot=N
 GET http://<Mac-IP>:19527/api/device/<deviceToken>/meal/today.raw?slot=N
 ```
 
-这些请求只会在 `FEATURE_MEAL=1` 且当前页面是 `TodayMeal` 时发生。
+天气页请求：
+
+```text
+GET http://<Mac-IP>:19527/api/device/<deviceToken>/weather?slot=N
+```
+
+这些请求只会在对应 feature 启用且当前页面需要数据时发生。
 
 `meal/today.raw` 必须返回：
 
@@ -237,6 +267,17 @@ GET http://<Mac-IP>:19527/api/device/<deviceToken>/meal/today.raw?slot=N
 - 800 x 480
 - 4bpp
 - 192000 bytes
+
+`weather?slot=N` 必须返回：
+
+- `schemaVersion: 1`
+- `source: open-meteo` 或 `source: caiyun-v2.6`
+- `slotCount: 3`
+- `current`
+- `today`
+- `details`
+- `hourly`
+- `daily`
 
 固件只把 API host 和 port 写入日志，不打印完整 URL。
 
@@ -257,11 +298,11 @@ GET http://<Mac-IP>:19527/api/device/<deviceToken>/meal/today.raw?slot=N
 - 冷启动。
 - 页面切换。
 - 绿色键手动刷新。
-- 食谱内部页切换。
+- 食谱或天气内部页切换。
 - 页面显示 hash 变化。
 - 连续约 12 个周期后的一小时强制刷新。
 
-页面 hash 包含 PageId、页码、显示内容、电池显示值和食谱图片 hash；不把 `generatedAt` 作为额度页强制刷新依据。
+页面 hash 包含 PageId、页码、显示内容、电池显示值、食谱图片 hash 和天气显示内容；不把 `generatedAt` 作为额度页或天气页强制刷新依据。
 
 ## Deep Sleep
 
@@ -281,6 +322,7 @@ GET http://<Mac-IP>:19527/api/device/<deviceToken>/meal/today.raw?slot=N
 - 已显示过有效当前页：保留旧画面并睡眠。
 - 没有任何有效画面：显示 `SETUP ERROR` 或进入本地配网。
 - 食谱图片失败：显示简洁错误页或保留已有食谱画面。
+- 天气数据失败：显示简洁错误页或保留已有天气画面。
 
 ## 电池显示
 
@@ -306,6 +348,8 @@ BAT --%
 4. 在 `PageManager::renderCurrentPage()` 中分发渲染。
 
 不需要修改 `InputManager`。左键 N 连击和中键下一页会自动使用页面注册表数量。
+
+如果新页面需要内部页，复用 `InputActionType::NextSubPage` 的流程，在 `main.cpp` 中为该页面维护当前内部 slot，并让页面 hash 包含内部 slot。不要在 `InputManager` 里写具体页面名。
 
 页面模块不应直接：
 

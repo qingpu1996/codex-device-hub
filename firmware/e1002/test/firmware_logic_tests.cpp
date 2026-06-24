@@ -11,6 +11,12 @@
 #include "page_manager.h"
 #include "provisioning.h"
 #include "quota_client.h"
+#if FEATURE_WEATHER
+#include "weather_client.h"
+#endif
+
+static constexpr uint8_t kExpectedPageCount = 1 + (FEATURE_MEAL ? 1 : 0) + (FEATURE_WEATHER ? 1 : 0);
+static constexpr uint8_t kWeatherExpectedSlot = 2 + (FEATURE_MEAL ? 1 : 0);
 
 static const char* normalJson =
   "{\"schemaVersion\":1,\"generatedAt\":1780000000,\"plan\":\"PRO\",\"status\":\"fresh\","
@@ -169,31 +175,27 @@ static void test_twelve_cycles_force_refresh() {
 
 static void test_page_count_matches_features() {
   PageManager pages;
-#if FEATURE_MEAL
-  assert(pages.pageCount() == 2);
-#else
-  assert(pages.pageCount() == 1);
-#endif
+  assert(pages.pageCount() == kExpectedPageCount);
 }
 
 static void test_page_one_next_respects_registry() {
   PageManager pages(1);
   assert(pages.nextPage());
-#if FEATURE_MEAL
+  if (kExpectedPageCount > 1) {
   assert(pages.currentSlot() == 2);
+#if FEATURE_MEAL
   assert(pages.currentPage().id == PageId::TodayMeal);
 #else
+  assert(pages.currentPage().id == PageId::Weather);
+#endif
+  } else {
   assert(pages.currentSlot() == 1);
   assert(pages.currentPage().id == PageId::CodexQuota);
-#endif
+  }
 }
 
 static void test_last_page_next_wraps_to_page_one() {
-#if FEATURE_MEAL
-  PageManager pages(2);
-#else
-  PageManager pages(1);
-#endif
+  PageManager pages(kExpectedPageCount);
   assert(pages.nextPage());
   assert(pages.currentSlot() == 1);
   assert(pages.currentPage().id == PageId::CodexQuota);
@@ -206,21 +208,25 @@ static void test_direct_click_one_goes_page_one() {
 }
 
 static void test_direct_click_two_goes_page_two() {
-#if FEATURE_MEAL
   InputAction action = directPageActionFromClickCount(2, static_cast<uint8_t>(PageManager::registryCount()));
+  if (kExpectedPageCount >= 2) {
   assert(action.type == InputActionType::GoToPage);
   assert(action.targetPageSlot == 2);
-#else
-  InputAction action = directPageActionFromClickCount(2, static_cast<uint8_t>(PageManager::registryCount()));
+  } else {
   assert(action.type == InputActionType::None);
   assert(action.clickCount == 2);
-#endif
+  }
 }
 
-static void test_direct_click_three_invalid_with_two_pages() {
+static void test_direct_click_past_page_count_is_invalid() {
   InputAction action = directPageActionFromClickCount(3, static_cast<uint8_t>(PageManager::registryCount()));
+  if (kExpectedPageCount >= 3) {
+    assert(action.type == InputActionType::GoToPage);
+    assert(action.targetPageSlot == 3);
+  } else {
   assert(action.type == InputActionType::None);
   assert(action.clickCount == 3);
+  }
 }
 
 static void test_direct_current_page_has_no_page_change() {
@@ -236,18 +242,18 @@ static void test_middle_action_advances_one_page() {
   InputAction action = actionFromWakeMask(1ULL << PIN_KEY1_MIDDLE);
   assert(action.type == InputActionType::NextPage);
   assert(pages.nextPage());
-#if FEATURE_MEAL
+  if (kExpectedPageCount > 1) {
   assert(pages.currentSlot() == 2);
-#else
+  } else {
   assert(pages.currentSlot() == 1);
-#endif
+  }
 }
 
-static void test_middle_long_press_matches_meal_feature() {
+static void test_middle_long_press_matches_subpage_features() {
   InputAction shortPress = middleButtonActionFromHoldDuration(BUTTON_LONG_PRESS_MS - 1);
   InputAction longPress = middleButtonActionFromHoldDuration(BUTTON_LONG_PRESS_MS);
   assert(shortPress.type == InputActionType::NextPage);
-#if FEATURE_MEAL
+#if FEATURE_SUBPAGES
   assert(longPress.type == InputActionType::NextSubPage);
 #else
   assert(longPress.type == InputActionType::NextPage);
@@ -255,28 +261,15 @@ static void test_middle_long_press_matches_meal_feature() {
 }
 
 static void test_green_action_does_not_change_page() {
-#if FEATURE_MEAL
-  PageManager pages(2);
-#else
-  PageManager pages(1);
-#endif
+  PageManager pages(kExpectedPageCount);
   InputAction action = actionFromWakeMask(1ULL << PIN_KEY0_GREEN);
   assert(action.type == InputActionType::RefreshCurrentPage);
-#if FEATURE_MEAL
-  assert(pages.currentSlot() == 2);
-#else
-  assert(pages.currentSlot() == 1);
-#endif
+  assert(pages.currentSlot() == kExpectedPageCount);
 }
 
 static void test_timer_wake_does_not_change_page() {
-#if FEATURE_MEAL
-  PageManager pages(2);
-  assert(pages.currentSlot() == 2);
-#else
-  PageManager pages(1);
-  assert(pages.currentSlot() == 1);
-#endif
+  PageManager pages(kExpectedPageCount);
+  assert(pages.currentSlot() == kExpectedPageCount);
 }
 
 static void test_left_wake_press_counts_as_first_click() {
@@ -329,41 +322,40 @@ static void test_page_indicator_formats() {
   PageManager pageOne(1);
   char value[12];
   pageOne.formatPageIndicator(value, sizeof(value));
-#if FEATURE_MEAL
-  assert(strcmp(value, "P1/2") == 0);
-  PageManager pageTwo(2);
-  pageTwo.formatPageIndicator(value, sizeof(value));
-  assert(strcmp(value, "P2/2") == 0);
-#else
-  assert(strcmp(value, "P1/1") == 0);
-#endif
+  char expected[12];
+  snprintf(expected, sizeof(expected), "P1/%u", static_cast<unsigned>(kExpectedPageCount));
+  assert(strcmp(value, expected) == 0);
+  PageManager last(kExpectedPageCount);
+  last.formatPageIndicator(value, sizeof(value));
+  snprintf(expected, sizeof(expected), "P%u/%u", static_cast<unsigned>(kExpectedPageCount), static_cast<unsigned>(kExpectedPageCount));
+  assert(strcmp(value, expected) == 0);
 }
 
 static void test_hash_includes_page_id() {
   const uint32_t samePayloadHash = 12345;
   assert(pageDisplayHash(PageId::CodexQuota, samePayloadHash, "P1/2") !=
          pageDisplayHash(PageId::TodayMeal, samePayloadHash, "P1/2"));
+  assert(pageDisplayHash(PageId::CodexQuota, samePayloadHash, "P1/2") !=
+         pageDisplayHash(PageId::Weather, samePayloadHash, "P1/2"));
 }
 
 static void test_page_one_and_two_hash_differ_with_same_content() {
   PageManager pages(1);
-#if FEATURE_MEAL
+  if (kExpectedPageCount >= 2) {
   assert(pages.pageContentHash(1, 777, "P1/2") != pages.pageContentHash(2, 777, "P1/2"));
-#else
+  } else {
   assert(!pages.isValidSlot(2));
   assert(pages.pageContentHash(1, 777, "P1/1") != pageDisplayHash(PageId::TodayMeal, 777, "P1/1"));
-#endif
+  }
 }
 
 static void test_page_registry_feature_policy() {
-#if FEATURE_MEAL
-  PageManager pages(2);
+  PageManager pages(kExpectedPageCount);
+  assert(pages.pageCount() == kExpectedPageCount);
   assert(pages.currentPage().refreshPolicy == RefreshPolicy::PeriodicData);
-#else
-  PageManager pages(1);
-  assert(pages.pageCount() == 1);
-  assert(!pages.isValidSlot(2));
-  assert(pages.currentPage().refreshPolicy == RefreshPolicy::PeriodicData);
+#if FEATURE_WEATHER
+  assert(pages.isValidSlot(kWeatherExpectedSlot));
+  assert(pages.pageForSlot(kWeatherExpectedSlot)->id == PageId::Weather);
 #endif
 }
 
@@ -371,11 +363,11 @@ static void test_page_switch_requires_refresh_by_page_change() {
   PageManager pages(1);
   const uint8_t before = pages.currentSlot();
   pages.nextPage();
-#if FEATURE_MEAL
+  if (kExpectedPageCount > 1) {
   assert(pages.currentSlot() != before);
-#else
+  } else {
   assert(pages.currentSlot() == before);
-#endif
+  }
 }
 
 static void test_provisioning_accepts_valid_fields() {
@@ -532,6 +524,90 @@ static void test_meal_meta_hash_uses_image_hash_not_generated_at() {
 }
 #endif
 
+#if FEATURE_WEATHER
+static const char* weatherJson =
+  "{\"schemaVersion\":1,\"generatedAt\":1780000000,\"status\":\"fresh\",\"source\":\"open-meteo\","
+  "\"location\":\"Hangzhou Yuhang\",\"timezone\":\"Asia/Shanghai\",\"slot\":2,\"slotCount\":3,"
+  "\"current\":{\"tempC\":31,\"feelsLikeC\":35,\"humidityPercent\":72,\"condition\":\"RAIN\","
+  "\"icon\":\"RAIN\",\"weatherCode\":61,\"windKph\":12,\"windDirectionDeg\":90,\"windText\":\"E\","
+  "\"pressureHpa\":1006,\"precipMm\":1.2,\"pm25\":18,\"pm10\":30,\"uvIndex\":4.5},"
+  "\"today\":{\"highC\":33,\"lowC\":26,\"precipProbPercent\":80,\"precipMm\":12.5,"
+  "\"sunriseText\":\"05:02\",\"sunsetText\":\"19:05\",\"uvIndexMax\":7.2},"
+  "\"details\":{\"aqiChn\":58,\"visibilityKm\":9.5,\"cloudPercent\":80,\"localRainIntensity\":1.2,"
+  "\"nearestRainDistanceKm\":3.4,\"nearestRainIntensity\":0.8,\"comfortIndex\":4,\"dressingIndex\":3,\"coldRiskIndex\":2},"
+  "\"hourly\":[{\"timeText\":\"14:00\",\"tempC\":31,\"precipProbPercent\":80,\"precipMm\":1.2,"
+  "\"condition\":\"RAIN\",\"icon\":\"RAIN\",\"weatherCode\":61}],"
+  "\"daily\":[{\"dayText\":\"THU\",\"highC\":33,\"lowC\":26,\"precipProbPercent\":80,"
+  "\"precipMm\":12.5,\"condition\":\"RAIN\",\"icon\":\"RAIN\",\"weatherCode\":61}]}";
+
+static WeatherPayload parseWeatherOk(const char* json) {
+  WeatherPayload payload{};
+  WeatherParseResult result = parseWeatherJson(json, strlen(json), &payload);
+  assert(result.ok);
+  return payload;
+}
+
+static void test_weather_endpoint_url_builder() {
+  char url[288];
+  assert(buildWeatherEndpointUrl("http://192.0.2.10:19527/api/device/example-device-token", 2, url, sizeof(url)));
+  assert(strcmp(url, "http://192.0.2.10:19527/api/device/example-device-token/weather?slot=2") == 0);
+  assert(!buildWeatherEndpointUrl("http://192.0.2.10:19527/legacy/token", 1, url, sizeof(url)));
+}
+
+static void test_weather_json_parses_valid_payload() {
+  WeatherPayload payload = parseWeatherOk(weatherJson);
+  assert(payload.schemaVersion == 1);
+  assert(strcmp(payload.location, "Hangzhou Yuhang") == 0);
+  assert(payload.slot == 2);
+  assert(payload.slotCount == 3);
+  assert(payload.current.tempC == 31);
+  assert(payload.current.precipTenthsMm == 12);
+  assert(payload.current.uvIndexTenths == 45);
+  assert(payload.details.aqiChn == 58);
+  assert(payload.details.visibilityTenthsKm == 95);
+  assert(payload.details.nearestRainDistanceTenthsKm == 34);
+  assert(payload.hourlyCount == 1);
+  assert(payload.dailyCount == 1);
+}
+
+static void test_weather_hash_ignores_generated_at() {
+  WeatherPayload a = parseWeatherOk(weatherJson);
+  const char* changed =
+    "{\"schemaVersion\":1,\"generatedAt\":1780009999,\"status\":\"cached\",\"source\":\"open-meteo\","
+    "\"location\":\"Hangzhou Yuhang\",\"timezone\":\"Asia/Shanghai\",\"slot\":2,\"slotCount\":3,"
+    "\"current\":{\"tempC\":31,\"feelsLikeC\":35,\"humidityPercent\":72,\"condition\":\"RAIN\","
+    "\"icon\":\"RAIN\",\"weatherCode\":61,\"windKph\":12,\"windDirectionDeg\":90,\"windText\":\"E\","
+    "\"pressureHpa\":1006,\"precipMm\":1.2,\"pm25\":18,\"pm10\":30,\"uvIndex\":4.5},"
+    "\"today\":{\"highC\":33,\"lowC\":26,\"precipProbPercent\":80,\"precipMm\":12.5,"
+    "\"sunriseText\":\"05:02\",\"sunsetText\":\"19:05\",\"uvIndexMax\":7.2},"
+    "\"details\":{\"aqiChn\":58,\"visibilityKm\":9.5,\"cloudPercent\":80,\"localRainIntensity\":1.2,"
+    "\"nearestRainDistanceKm\":3.4,\"nearestRainIntensity\":0.8,\"comfortIndex\":4,\"dressingIndex\":3,\"coldRiskIndex\":2},"
+    "\"hourly\":[{\"timeText\":\"14:00\",\"tempC\":31,\"precipProbPercent\":80,\"precipMm\":1.2,"
+    "\"condition\":\"RAIN\",\"icon\":\"RAIN\",\"weatherCode\":61}],"
+    "\"daily\":[{\"dayText\":\"THU\",\"highC\":33,\"lowC\":26,\"precipProbPercent\":80,"
+    "\"precipMm\":12.5,\"condition\":\"RAIN\",\"icon\":\"RAIN\",\"weatherCode\":61}]}";
+  WeatherPayload b = parseWeatherOk(changed);
+  assert(weatherPayloadHash(a) == weatherPayloadHash(b));
+}
+
+static void test_weather_hash_changes_with_slot_and_temp() {
+  WeatherPayload a = parseWeatherOk(weatherJson);
+  const char* changed =
+    "{\"schemaVersion\":1,\"generatedAt\":1780000000,\"status\":\"fresh\",\"source\":\"open-meteo\","
+    "\"location\":\"Hangzhou Yuhang\",\"timezone\":\"Asia/Shanghai\",\"slot\":3,\"slotCount\":3,"
+    "\"current\":{\"tempC\":32,\"feelsLikeC\":35,\"humidityPercent\":72,\"condition\":\"RAIN\","
+    "\"icon\":\"RAIN\",\"weatherCode\":61,\"windKph\":12,\"windDirectionDeg\":90,\"windText\":\"E\","
+    "\"pressureHpa\":1006,\"precipMm\":1.2,\"pm25\":18,\"pm10\":30,\"uvIndex\":4.5},"
+    "\"today\":{\"highC\":33,\"lowC\":26,\"precipProbPercent\":80,\"precipMm\":12.5,"
+    "\"sunriseText\":\"05:02\",\"sunsetText\":\"19:05\",\"uvIndexMax\":7.2},"
+    "\"details\":{\"aqiChn\":58,\"visibilityKm\":9.5,\"cloudPercent\":80,\"localRainIntensity\":1.2,"
+    "\"nearestRainDistanceKm\":3.4,\"nearestRainIntensity\":0.8,\"comfortIndex\":4,\"dressingIndex\":3,\"coldRiskIndex\":2},"
+    "\"hourly\":[],\"daily\":[]}";
+  WeatherPayload b = parseWeatherOk(changed);
+  assert(weatherPayloadHash(a) != weatherPayloadHash(b));
+}
+#endif
+
 int main() {
   test_normal_json();
   test_usage_json();
@@ -552,10 +628,10 @@ int main() {
   test_last_page_next_wraps_to_page_one();
   test_direct_click_one_goes_page_one();
   test_direct_click_two_goes_page_two();
-  test_direct_click_three_invalid_with_two_pages();
+  test_direct_click_past_page_count_is_invalid();
   test_direct_current_page_has_no_page_change();
   test_middle_action_advances_one_page();
-  test_middle_long_press_matches_meal_feature();
+  test_middle_long_press_matches_subpage_features();
   test_green_action_does_not_change_page();
   test_timer_wake_does_not_change_page();
   test_left_wake_press_counts_as_first_click();
@@ -585,6 +661,12 @@ int main() {
   test_meal_meta_parses_valid_json();
   test_meal_meta_rejects_bad_shape();
   test_meal_meta_hash_uses_image_hash_not_generated_at();
+#endif
+#if FEATURE_WEATHER
+  test_weather_endpoint_url_builder();
+  test_weather_json_parses_valid_payload();
+  test_weather_hash_ignores_generated_at();
+  test_weather_hash_changes_with_slot_and_temp();
 #endif
   puts("firmware logic tests passed");
   return 0;

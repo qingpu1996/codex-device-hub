@@ -120,7 +120,7 @@ InputAction actionFromWakeMask(uint64_t wakeMask) {
 
 InputAction middleButtonActionFromHoldDuration(uint32_t holdMs) {
   if (holdMs >= BUTTON_LONG_PRESS_MS) {
-#if FEATURE_MEAL
+#if FEATURE_SUBPAGES
     return {InputActionType::NextSubPage, 0, 0};
 #else
     return {InputActionType::NextPage, 0, 0};
@@ -256,10 +256,10 @@ InputAction collectMiddleButtonActionFromWake() {
   const uint32_t held = millis() - start;
   const bool longPress = digitalRead(PIN_KEY1_MIDDLE) == LOW;
   if (longPress) {
-#if FEATURE_MEAL
+#if FEATURE_SUBPAGES
     Serial1.printf("[INPUT] KEY1 MIDDLE long press hold=%lu ms; trigger before release\n", static_cast<unsigned long>(held));
 #else
-    Serial1.printf("[INPUT] KEY1 MIDDLE long press hold=%lu ms; meal feature disabled, trigger next page\n", static_cast<unsigned long>(held));
+    Serial1.printf("[INPUT] KEY1 MIDDLE long press hold=%lu ms; no subpage feature, trigger next page\n", static_cast<unsigned long>(held));
 #endif
     return middleButtonActionFromHoldDuration(BUTTON_LONG_PRESS_MS);
   }

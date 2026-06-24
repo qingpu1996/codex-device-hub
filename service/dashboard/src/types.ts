@@ -2,12 +2,27 @@ export interface DashboardConfig {
   bindHost: string;
   port: number;
   deviceToken: string;
+  adminToken: string;
   codexPath: string;
   nodePath: string;
   projectDir: string;
   networkInterface: string;
   interfaceMac: string;
+  weather: WeatherConfig;
   createdAt: string;
+  updatedAt: string;
+}
+
+export type WeatherProvider = "open-meteo" | "caiyun-v2.6";
+
+export interface WeatherConfig {
+  enabled: boolean;
+  provider: WeatherProvider;
+  locationName: string;
+  latitude: number;
+  longitude: number;
+  timezone: string;
+  caiyunToken?: string;
   updatedAt: string;
 }
 
@@ -89,4 +104,80 @@ export interface DeviceDashboardPayload {
 export interface DeviceUsageSummary {
   totalTokensText: string;
   todayTokensText: string;
+}
+
+export interface DeviceWeatherPayload {
+  schemaVersion: 1;
+  generatedAt: number;
+  status: "fresh" | "cached" | "stale" | "not_configured";
+  source: WeatherProvider;
+  location: string;
+  timezone: string;
+  slot: number;
+  slotCount: number;
+  current: DeviceWeatherCurrent;
+  today: DeviceWeatherToday;
+  details: DeviceWeatherDetails;
+  hourly: DeviceWeatherHour[];
+  daily: DeviceWeatherDay[];
+}
+
+export interface DeviceWeatherCurrent {
+  tempC: number | null;
+  feelsLikeC: number | null;
+  humidityPercent: number | null;
+  condition: string;
+  icon: string;
+  weatherCode: number | null;
+  windKph: number | null;
+  windDirectionDeg: number | null;
+  windText: string;
+  pressureHpa: number | null;
+  precipMm: number | null;
+  pm25: number | null;
+  pm10: number | null;
+  uvIndex: number | null;
+}
+
+export interface DeviceWeatherToday {
+  highC: number | null;
+  lowC: number | null;
+  precipProbPercent: number | null;
+  precipMm: number | null;
+  sunriseText: string;
+  sunsetText: string;
+  uvIndexMax: number | null;
+}
+
+export interface DeviceWeatherDetails {
+  aqiChn: number | null;
+  visibilityKm: number | null;
+  cloudPercent: number | null;
+  localRainIntensity: number | null;
+  nearestRainDistanceKm: number | null;
+  nearestRainIntensity: number | null;
+  comfortIndex: number | null;
+  dressingIndex: number | null;
+  coldRiskIndex: number | null;
+}
+
+export interface DeviceWeatherHour {
+  timeText: string;
+  tempC: number | null;
+  precipProbPercent: number | null;
+  precipMm: number | null;
+  condition: string;
+  icon: string;
+  weatherCode: number | null;
+}
+
+export interface DeviceWeatherDay {
+  dayText: string;
+  highC: number | null;
+  lowC: number | null;
+  precipProbPercent: number | null;
+  precipMm: number | null;
+  condition: string;
+  icon: string;
+  weatherCode: number | null;
 }

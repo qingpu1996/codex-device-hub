@@ -13,6 +13,7 @@ function modules() {
     httpServer: require("../dist/src/httpServer.js"),
     devicePayload: require("../dist/src/devicePayload.js"),
     mealPlan: require("../dist/src/mealPlan.js"),
+    weather: require("../dist/src/weather.js"),
   };
 }
 
@@ -367,6 +368,172 @@ test("device meal raw endpoint returns fixed-size 4bpp image", async () => {
   }
 });
 
+test("device weather endpoint requires token and returns normalized forecast", async () => {
+  const { createDashboardHttpServer } = modules().httpServer;
+  const { normalizeQuotaData } = modules().normalizer;
+  const { resetWeatherCacheForTests } = modules().weather;
+  const config = testConfig();
+  resetWeatherCacheForTests();
+  const restoreFetch = mockWeatherFetch();
+  const server = createDashboardHttpServer(config, provider(normalizeQuotaData(account("pro"), multiBucketLimits(), { now })));
+  await listen(server);
+  try {
+    const base = localBase(server);
+    assert.equal((await fetch(`${base}/api/device/bad-token/weather`)).status, 404);
+    const response = await fetch(`${base}/api/device/${config.deviceToken}/weather?slot=2`);
+    const text = await response.text();
+    const body = JSON.parse(text);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("cache-control"), /no-store/);
+    assert.equal(Buffer.byteLength(text, "utf8") < 8192, true);
+    assert.equal(body.schemaVersion, 1);
+    assert.equal(body.source, "open-meteo");
+    assert.equal(body.location, "Hangzhou Yuhang");
+    assert.equal(body.slot, 2);
+    assert.equal(body.slotCount, 3);
+    assert.equal(body.current.tempC, 31);
+    assert.equal(body.current.condition, "RAIN");
+    assert.equal(body.current.pm25, 18);
+    assert.equal(body.details.visibilityKm, 12.3);
+    assert.equal(body.details.cloudPercent, 76);
+    assert.equal(body.today.highC, 33);
+    assert.equal(body.hourly.length, 6);
+    assert.equal(body.daily.length, 3);
+    assert.equal(JSON.stringify(body).includes(config.deviceToken), false);
+    assert.equal(JSON.stringify(body).includes(config.adminToken), false);
+  } finally {
+    await close(server);
+    restoreFetch();
+    resetWeatherCacheForTests();
+  }
+});
+
+test("device weather endpoint supports caiyun provider without exposing token", async () => {
+  const { createDashboardHttpServer } = modules().httpServer;
+  const { normalizeQuotaData } = modules().normalizer;
+  const { resetWeatherCacheForTests } = modules().weather;
+  const config = testConfig();
+  config.weather.provider = "caiyun-v2.6";
+  config.weather.caiyunToken = "test-caiyun-token-keep-private";
+  resetWeatherCacheForTests();
+  const restoreFetch = mockWeatherFetch();
+  const server = createDashboardHttpServer(config, provider(normalizeQuotaData(account("pro"), multiBucketLimits(), { now })));
+  await listen(server);
+  try {
+    const response = await fetch(`${localBase(server)}/api/device/${config.deviceToken}/weather?slot=3`);
+    const text = await response.text();
+    const body = JSON.parse(text);
+    assert.equal(response.status, 200);
+    assert.equal(body.schemaVersion, 1);
+    assert.equal(body.source, "caiyun-v2.6");
+    assert.equal(body.status, "fresh");
+    assert.equal(body.slot, 3);
+    assert.equal(body.slotCount, 3);
+    assert.equal(body.current.tempC, 30);
+    assert.equal(body.current.humidityPercent, 68);
+    assert.equal(body.current.pressureHpa, 1005);
+    assert.equal(body.current.condition, "RAIN");
+    assert.equal(body.current.pm25, 20);
+    assert.equal(body.details.aqiChn, 46);
+    assert.equal(body.details.visibilityKm, 18.6);
+    assert.equal(body.details.cloudPercent, 82);
+    assert.equal(body.details.nearestRainDistanceKm, 2.4);
+    assert.equal(body.details.comfortIndex, 4);
+    assert.equal(body.details.dressingIndex, 3);
+    assert.equal(body.details.coldRiskIndex, 2);
+    assert.equal(body.today.highC, 34);
+    assert.equal(body.today.sunriseText, "05:02");
+    assert.equal(body.hourly.length, 6);
+    assert.equal(body.daily.length, 3);
+    assert.equal(text.includes(config.weather.caiyunToken), false);
+  } finally {
+    await close(server);
+    restoreFetch();
+    resetWeatherCacheForTests();
+  }
+});
+
+test("caiyun provider without token returns not configured payload", async () => {
+  const { getDeviceWeatherPayload, resetWeatherCacheForTests } = modules().weather;
+  const config = testConfig().weather;
+  config.provider = "caiyun-v2.6";
+  delete config.caiyunToken;
+  resetWeatherCacheForTests();
+  const payload = await getDeviceWeatherPayload(config, 1, now);
+  assert.equal(payload.status, "not_configured");
+  assert.equal(payload.source, "caiyun-v2.6");
+  assert.equal(payload.current.condition, "NO DATA");
+});
+
+test("admin config page requires admin token and saves weather config without exposing device token", async () => {
+  const { createDashboardHttpServer } = modules().httpServer;
+  const { normalizeQuotaData } = modules().normalizer;
+  const config = testConfig();
+  let saved = null;
+  const server = createDashboardHttpServer(config, provider(normalizeQuotaData(account("pro"), multiBucketLimits(), { now })), {
+    saveConfig: async (next) => {
+      saved = JSON.parse(JSON.stringify(next));
+    },
+  });
+  await listen(server);
+  try {
+    const base = localBase(server);
+    assert.equal((await fetch(`${base}/admin/bad-token/config`)).status, 404);
+    const page = await fetch(`${base}/admin/${config.adminToken}/config`);
+    const html = await page.text();
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'none'/);
+    assert.equal(html.includes(config.deviceToken), false);
+    assert.equal(html.includes("secret-caiyun-token"), false);
+
+    const form = new URLSearchParams({
+      weatherEnabled: "1",
+      provider: "caiyun-v2.6",
+      caiyunToken: "secret-caiyun-token",
+      locationName: "Hangzhou Yuhang West",
+      latitude: "30.426",
+      longitude: "120.289",
+      timezone: "Asia/Shanghai",
+    });
+    const response = await fetch(`${base}/admin/${config.adminToken}/config`, {
+      method: "POST",
+      body: form,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(saved.weather.locationName, "Hangzhou Yuhang West");
+    assert.equal(saved.weather.latitude, 30.426);
+    assert.equal(saved.weather.longitude, 120.289);
+    assert.equal(saved.weather.provider, "caiyun-v2.6");
+    assert.equal(saved.weather.caiyunToken, "secret-caiyun-token");
+
+    const secondForm = new URLSearchParams({
+      weatherEnabled: "1",
+      provider: "caiyun-v2.6",
+      locationName: "Hangzhou Yuhang West",
+      latitude: "30.426",
+      longitude: "120.289",
+      timezone: "Asia/Shanghai",
+    });
+    await fetch(`${base}/admin/${config.adminToken}/config`, {
+      method: "POST",
+      body: secondForm,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+    assert.equal(saved.weather.caiyunToken, "secret-caiyun-token");
+
+    secondForm.set("clearCaiyunToken", "1");
+    await fetch(`${base}/admin/${config.adminToken}/config`, {
+      method: "POST",
+      body: secondForm,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+    assert.equal(saved.weather.caiyunToken, undefined);
+  } finally {
+    await close(server);
+  }
+});
+
 test("meal helpers select weekday and pack two pixels per byte", () => {
   const { buildTodayMealPlan, nearestE1002ColorNibble, packE1002Raw4bpp } = modules().mealPlan;
   const weeklyRows = [
@@ -476,13 +643,154 @@ function testConfig() {
     bindHost: "127.0.0.1",
     port: 0,
     deviceToken: "test-device-token-12345678901234567890123456789012",
+    adminToken: "test-admin-token-12345678901234567890123456789012",
     codexPath: "/bin/false",
     nodePath: process.execPath,
     projectDir: process.cwd(),
     networkInterface: "lo0",
     interfaceMac: "00:00:00:00:00:00",
+    weather: {
+      enabled: true,
+      provider: "open-meteo",
+      locationName: "Hangzhou Yuhang",
+      latitude: 30.42,
+      longitude: 120.30,
+      timezone: "Asia/Shanghai",
+      updatedAt: now.toISOString(),
+    },
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
+  };
+}
+
+function mockWeatherFetch() {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const value = String(url);
+    if (value.includes("air-quality-api.open-meteo.com")) {
+      return new Response(JSON.stringify({
+        current: {
+          pm2_5: 18,
+          pm10: 30,
+          uv_index: 4.5,
+        },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (value.includes("api.open-meteo.com")) {
+      return new Response(JSON.stringify({
+        current: {
+          temperature_2m: 31,
+          apparent_temperature: 35,
+          relative_humidity_2m: 72,
+          precipitation: 1.2,
+          weather_code: 61,
+          pressure_msl: 1006,
+          wind_speed_10m: 12,
+          wind_direction_10m: 90,
+          cloud_cover: 76,
+          visibility: 12300,
+        },
+        hourly: {
+          time: ["2026-06-24T14:00", "2026-06-24T15:00", "2026-06-24T16:00", "2026-06-24T17:00", "2026-06-24T18:00", "2026-06-24T19:00"],
+          temperature_2m: [31, 31, 30, 29, 28, 27],
+          precipitation_probability: [80, 70, 60, 40, 20, 20],
+          precipitation: [1.2, 0.8, 0.3, 0, 0, 0],
+          weather_code: [61, 61, 3, 2, 1, 1],
+        },
+        daily: {
+          time: ["2026-06-24", "2026-06-25", "2026-06-26"],
+          weather_code: [61, 3, 0],
+          temperature_2m_max: [33, 34, 35],
+          temperature_2m_min: [26, 27, 28],
+          precipitation_probability_max: [80, 30, 10],
+          precipitation_sum: [12.5, 0.5, 0],
+          sunrise: ["2026-06-24T05:02", "2026-06-25T05:02", "2026-06-26T05:03"],
+          sunset: ["2026-06-24T19:05", "2026-06-25T19:05", "2026-06-26T19:06"],
+          uv_index_max: [7.2, 8, 9],
+        },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (value.includes("api.caiyunapp.com")) {
+      assert.equal(value.includes("test-caiyun-token-keep-private"), true);
+      return new Response(JSON.stringify({
+        status: "ok",
+        api_version: "v2.6",
+        timezone: "Asia/Shanghai",
+        result: {
+          realtime: {
+            temperature: 30.2,
+            apparent_temperature: 34.1,
+            humidity: 0.68,
+            skycon: "LIGHT_RAIN",
+            pressure: 100520,
+            wind: { speed: 11.6, direction: 80 },
+            visibility: 18.6,
+            cloudrate: 0.82,
+            precipitation: {
+              local: { intensity: 0.8 },
+              nearest: { distance: 2.4, intensity: 0.2 },
+            },
+            air_quality: { pm25: 20, pm10: 28, aqi: { chn: 46 } },
+            life_index: { ultraviolet: { index: 3.4, desc: "弱" }, comfort: { index: 4, desc: "温暖" } },
+          },
+          hourly: {
+            precipitation: [
+              { datetime: "2026-06-24T14:00+08:00", value: 0.8, probability: 70 },
+              { datetime: "2026-06-24T15:00+08:00", value: 0.5, probability: 60 },
+              { datetime: "2026-06-24T16:00+08:00", value: 0.1, probability: 30 },
+              { datetime: "2026-06-24T17:00+08:00", value: 0, probability: 10 },
+              { datetime: "2026-06-24T18:00+08:00", value: 0, probability: 10 },
+              { datetime: "2026-06-24T19:00+08:00", value: 0, probability: 5 },
+            ],
+            temperature: [
+              { datetime: "2026-06-24T14:00+08:00", value: 30 },
+              { datetime: "2026-06-24T15:00+08:00", value: 31 },
+              { datetime: "2026-06-24T16:00+08:00", value: 31 },
+              { datetime: "2026-06-24T17:00+08:00", value: 30 },
+              { datetime: "2026-06-24T18:00+08:00", value: 29 },
+              { datetime: "2026-06-24T19:00+08:00", value: 28 },
+            ],
+            skycon: [
+              { datetime: "2026-06-24T14:00+08:00", value: "LIGHT_RAIN" },
+              { datetime: "2026-06-24T15:00+08:00", value: "LIGHT_RAIN" },
+              { datetime: "2026-06-24T16:00+08:00", value: "CLOUDY" },
+              { datetime: "2026-06-24T17:00+08:00", value: "PARTLY_CLOUDY_DAY" },
+              { datetime: "2026-06-24T18:00+08:00", value: "CLEAR_DAY" },
+              { datetime: "2026-06-24T19:00+08:00", value: "CLEAR_NIGHT" },
+            ],
+          },
+          daily: {
+            astro: [
+              { date: "2026-06-24T00:00+08:00", sunrise: { time: "05:02" }, sunset: { time: "19:05" } },
+            ],
+            precipitation: [
+              { date: "2026-06-24T00:00+08:00", avg: 1.2, probability: 80 },
+              { date: "2026-06-25T00:00+08:00", avg: 0.3, probability: 30 },
+              { date: "2026-06-26T00:00+08:00", avg: 0, probability: 10 },
+            ],
+            temperature: [
+              { date: "2026-06-24T00:00+08:00", max: 34, min: 25 },
+              { date: "2026-06-25T00:00+08:00", max: 35, min: 26 },
+              { date: "2026-06-26T00:00+08:00", max: 36, min: 27 },
+            ],
+            skycon: [
+              { date: "2026-06-24T00:00+08:00", value: "LIGHT_RAIN" },
+              { date: "2026-06-25T00:00+08:00", value: "CLOUDY" },
+              { date: "2026-06-26T00:00+08:00", value: "CLEAR_DAY" },
+            ],
+            life_index: {
+              ultraviolet: [{ date: "2026-06-24T00:00+08:00", index: "5", desc: "中等" }],
+              dressing: [{ date: "2026-06-24T00:00+08:00", index: "3", desc: "热" }],
+              coldRisk: [{ date: "2026-06-24T00:00+08:00", index: "2", desc: "较低" }],
+            },
+          },
+        },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    return realFetch(url);
+  };
+  return () => {
+    globalThis.fetch = realFetch;
   };
 }
 

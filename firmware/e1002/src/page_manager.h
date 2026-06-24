@@ -9,10 +9,14 @@
 #include "meal_image_client.h"
 #endif
 #include "quota_client.h"
+#if FEATURE_WEATHER
+#include "weather_client.h"
+#endif
 
 enum class PageId : uint8_t {
   CodexQuota = 1,
   TodayMeal = 2,
+  Weather = 3,
 };
 
 enum class RefreshReason : uint8_t {
@@ -42,6 +46,12 @@ struct PageRenderData {
   const uint8_t* mealImage4bpp;
   size_t mealImageBytes;
   const char* mealError;
+#endif
+#if FEATURE_WEATHER
+  const WeatherPayload* weatherPayload;
+  const char* weatherError;
+#endif
+#if FEATURE_SUBPAGES
   const char* subPageIndicator;
 #endif
 };
@@ -80,4 +90,5 @@ const char* pageIdName(PageId id);
 const char* refreshPolicyName(RefreshPolicy policy);
 const char* refreshReasonName(RefreshReason reason);
 uint32_t mealPlaceholderHash();
+uint32_t weatherPlaceholderHash();
 uint32_t pageDisplayHash(PageId pageId, uint32_t pagePayloadHash, const char* indicator);

@@ -14,6 +14,9 @@ static constexpr PageDescriptor kPages[] = {
 #if FEATURE_MEAL
   {PageId::TodayMeal, 2, "TodayMeal", RefreshPolicy::PeriodicData},
 #endif
+#if FEATURE_WEATHER
+  {PageId::Weather, static_cast<uint8_t>(2 + (FEATURE_MEAL ? 1 : 0)), "Weather", RefreshPolicy::PeriodicData},
+#endif
 };
 
 static uint32_t fnv1a(uint32_t hash, const void* data, size_t len) {
@@ -110,11 +113,36 @@ void PageManager::renderCurrentPage(const PageRenderData& data, const BatterySta
 #if FEATURE_MEAL
     case PageId::TodayMeal:
       if (data.mealImage4bpp && data.mealImageBytes == kMealImageBytes) {
+#if FEATURE_SUBPAGES
         renderMealImagePage(data.mealImage4bpp, data.mealImageBytes, indicator, data.subPageIndicator, battery);
+#else
+        renderMealImagePage(data.mealImage4bpp, data.mealImageBytes, indicator, "", battery);
+#endif
       } else if (data.mealError) {
+#if FEATURE_SUBPAGES
         renderMealErrorPage(data.mealError, indicator, data.subPageIndicator, battery);
+#else
+        renderMealErrorPage(data.mealError, indicator, "", battery);
+#endif
       } else {
         renderTodayMealPage(indicator, battery);
+      }
+      break;
+#endif
+#if FEATURE_WEATHER
+    case PageId::Weather:
+      if (data.weatherPayload) {
+#if FEATURE_SUBPAGES
+        renderWeatherPage(*data.weatherPayload, indicator, data.subPageIndicator, battery);
+#else
+        renderWeatherPage(*data.weatherPayload, indicator, "", battery);
+#endif
+      } else {
+#if FEATURE_SUBPAGES
+        renderWeatherErrorPage(data.weatherError ? data.weatherError : "no-data", indicator, data.subPageIndicator, battery);
+#else
+        renderWeatherErrorPage(data.weatherError ? data.weatherError : "no-data", indicator, "", battery);
+#endif
       }
       break;
 #endif
@@ -138,6 +166,7 @@ const char* pageIdName(PageId id) {
   switch (id) {
     case PageId::CodexQuota: return "CodexQuota";
     case PageId::TodayMeal: return "TodayMeal";
+    case PageId::Weather: return "Weather";
   }
   return "Unknown";
 }
@@ -168,6 +197,13 @@ uint32_t mealPlaceholderHash() {
   hash = hashCString(hash, "TODAY'S MENU");
   hash = hashCString(hash, "NOT CONFIGURED");
   hash = hashCString(hash, "MEAL DATA WILL BE ADDED NEXT");
+  return hash;
+}
+
+uint32_t weatherPlaceholderHash() {
+  uint32_t hash = 2166136261UL;
+  hash = hashCString(hash, "WEATHER");
+  hash = hashCString(hash, "NO DATA");
   return hash;
 }
 

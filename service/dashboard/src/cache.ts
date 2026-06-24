@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
-import type { DashboardConfig, SanitizedDashboardData } from "./types";
+import type { DashboardConfig, SanitizedDashboardData, WeatherConfig } from "./types";
 import { appSupportDir, cachePath, configPath } from "./paths";
 import { safeJsonParse } from "./util";
 
@@ -19,8 +19,27 @@ export async function loadConfig(home?: string): Promise<DashboardConfig> {
     throw new Error("Invalid config.json");
   }
   const config = parsed as DashboardConfig;
+  let changed = false;
   if (!config.deviceToken) {
     config.deviceToken = generateDeviceToken();
+    changed = true;
+  }
+  if (!config.adminToken) {
+    config.adminToken = generateDeviceToken();
+    changed = true;
+  }
+  if (!config.weather) {
+    config.weather = defaultWeatherConfig(config.updatedAt ?? new Date().toISOString());
+    changed = true;
+  } else {
+    const upgraded = normalizeWeatherConfig(config.weather, config.updatedAt ?? new Date().toISOString());
+    if (JSON.stringify(upgraded) !== JSON.stringify(config.weather)) {
+      config.weather = upgraded;
+      changed = true;
+    }
+  }
+  if (changed) {
+    config.updatedAt = new Date().toISOString();
     await saveConfig(config, home);
   }
   return config;
@@ -55,6 +74,39 @@ export async function saveCachedData(data: SanitizedDashboardData, home?: string
 
 export function generateDeviceToken(): string {
   return randomBytes(32).toString("hex");
+}
+
+export function defaultWeatherConfig(updatedAt = new Date().toISOString()): WeatherConfig {
+  return {
+    enabled: true,
+    provider: "open-meteo",
+    locationName: "Hangzhou Yuhang",
+    latitude: 30.42,
+    longitude: 120.30,
+    timezone: "Asia/Shanghai",
+    updatedAt,
+  };
+}
+
+export function normalizeWeatherConfig(input: Partial<WeatherConfig>, updatedAt = new Date().toISOString()): WeatherConfig {
+  const latitude = typeof input.latitude === "number" && Number.isFinite(input.latitude) ? input.latitude : 30.42;
+  const longitude = typeof input.longitude === "number" && Number.isFinite(input.longitude) ? input.longitude : 120.30;
+  const provider = input.provider === "caiyun-v2.6" ? "caiyun-v2.6" : "open-meteo";
+  const caiyunToken = typeof input.caiyunToken === "string" ? input.caiyunToken.trim().slice(0, 256) : "";
+  return {
+    enabled: input.enabled !== false,
+    provider,
+    locationName: typeof input.locationName === "string" && input.locationName.trim() ? input.locationName.trim().slice(0, 48) : "Hangzhou Yuhang",
+    latitude: clampCoordinate(latitude, -90, 90),
+    longitude: clampCoordinate(longitude, -180, 180),
+    timezone: typeof input.timezone === "string" && input.timezone.trim() ? input.timezone.trim().slice(0, 48) : "Asia/Shanghai",
+    ...(caiyunToken ? { caiyunToken } : {}),
+    updatedAt: typeof input.updatedAt === "string" && input.updatedAt ? input.updatedAt : updatedAt,
+  };
+}
+
+function clampCoordinate(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.round(value * 10000) / 10000));
 }
 
 export async function writeJsonPrivate(file: string, value: unknown): Promise<void> {

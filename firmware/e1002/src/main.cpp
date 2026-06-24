@@ -14,14 +14,17 @@
 #include "power.h"
 #include "provisioning.h"
 #include "quota_client.h"
+#if FEATURE_WEATHER
+#include "weather_client.h"
+#endif
 
-static constexpr const char* FIRMWARE_VERSION = "codex-e1002-quota-0.5.1";
+static constexpr const char* FIRMWARE_VERSION = "codex-e1002-quota-0.6.0";
 static constexpr int kDbgRx = 44;
 static constexpr int kDbgTx = 43;
 static constexpr uint32_t kWifiConnectTimeoutMs = 15000;
 static constexpr uint32_t kConfigPortalHoldMs = 1200;
 static constexpr uint32_t kPersistentMagic = 0xE1002C0DUL;
-static constexpr uint16_t kPersistentVersion = 2;
+static constexpr uint16_t kPersistentVersion = 3;
 
 struct PersistentUiState {
   uint32_t magic;
@@ -35,6 +38,8 @@ struct PersistentUiState {
   bool hasRenderedSetupError;
   uint8_t currentMealSlot;
   uint8_t lastMealSlotCount;
+  uint8_t currentWeatherSlot;
+  uint8_t lastWeatherSlotCount;
 };
 
 RTC_DATA_ATTR PersistentUiState uiState;
@@ -46,6 +51,12 @@ static void resetPersistentState() {
   uiState.currentPageSlot = PageManager::kDefaultSlot;
   uiState.currentMealSlot = 1;
   uiState.lastMealSlotCount = 4;
+  uiState.currentWeatherSlot = 1;
+#if FEATURE_WEATHER
+  uiState.lastWeatherSlotCount = kWeatherSlotCount;
+#else
+  uiState.lastWeatherSlotCount = 3;
+#endif
 }
 
 static bool connectWifi(const DeviceSettings& settings) {
@@ -103,6 +114,26 @@ static void logMealSummary(const MealImageMeta& meta) {
 }
 #endif
 
+static uint8_t nextSubSlot(uint8_t current, uint8_t count) {
+  const uint8_t safeCount = count == 0 ? 1 : count;
+  const uint8_t safeCurrent = current == 0 ? 1 : current;
+  return safeCurrent >= safeCount ? 1 : static_cast<uint8_t>(safeCurrent + 1);
+}
+
+#if FEATURE_WEATHER
+static void logWeatherSummary(const WeatherPayload& payload) {
+  Serial1.printf("[weather] location  : %s\n", payload.location);
+  Serial1.printf("[weather] slot      : W%u/%u condition=%s temp=%d\n",
+                 static_cast<unsigned>(payload.slot),
+                 static_cast<unsigned>(payload.slotCount),
+                 payload.current.condition,
+                 static_cast<int>(payload.current.tempC));
+  Serial1.printf("[weather] hours/days : %u/%u\n",
+                 static_cast<unsigned>(payload.hourlyCount),
+                 static_cast<unsigned>(payload.dailyCount));
+}
+#endif
+
 static uint32_t mixHash(uint32_t hash, uint32_t value) {
   return hash ^ (value + 0x9e3779b9UL + (hash << 6) + (hash >> 2));
 }
@@ -153,6 +184,16 @@ static bool restorePersistentState(PageManager* pages, esp_sleep_wakeup_cause_t 
   }
   if (uiState.lastMealSlotCount == 0) {
     uiState.lastMealSlotCount = 4;
+  }
+  if (uiState.currentWeatherSlot == 0) {
+    uiState.currentWeatherSlot = 1;
+  }
+  if (uiState.lastWeatherSlotCount == 0) {
+#if FEATURE_WEATHER
+    uiState.lastWeatherSlotCount = kWeatherSlotCount;
+#else
+    uiState.lastWeatherSlotCount = 3;
+#endif
   }
   pages->goToSlot(uiState.currentPageSlot);
   return reset;
@@ -225,9 +266,7 @@ static RefreshDecision decidePageRefresh(const PageManager& pages,
 
 #if FEATURE_MEAL
 static uint8_t nextMealSlot(uint8_t current, uint8_t count) {
-  const uint8_t safeCount = count == 0 ? 1 : count;
-  const uint8_t safeCurrent = current == 0 ? 1 : current;
-  return safeCurrent >= safeCount ? 1 : static_cast<uint8_t>(safeCurrent + 1);
+  return nextSubSlot(current, count);
 }
 
 static void formatMealIndicator(char* out, size_t outSize) {
@@ -251,7 +290,48 @@ static void renderMealFailureAndSleep(const PageManager& pages,
 
   char subIndicator[12];
   formatMealIndicator(subIndicator, sizeof(subIndicator));
-  PageRenderData renderData{nullptr, nullptr, 0, category, subIndicator};
+  PageRenderData renderData{};
+  renderData.mealError = category;
+  renderData.subPageIndicator = subIndicator;
+  pages.refreshCurrentPage(renderData, battery);
+  uiState.currentPageSlot = pages.currentSlot();
+  uiState.lastDisplayedPageSlot = pages.currentSlot();
+  uiState.lastDisplayedContentHash = 0;
+  uiState.cyclesSinceRender = 0;
+  uiState.hasRenderedValidData = true;
+  enterDeepSleep();
+}
+#endif
+
+#if FEATURE_WEATHER
+static uint8_t nextWeatherSlot(uint8_t current, uint8_t count) {
+  return nextSubSlot(current, count);
+}
+
+static void formatWeatherIndicator(char* out, size_t outSize) {
+  if (!out || outSize == 0) {
+    return;
+  }
+  snprintf(out, outSize, "W%u/%u",
+           static_cast<unsigned>(uiState.currentWeatherSlot == 0 ? 1 : uiState.currentWeatherSlot),
+           static_cast<unsigned>(uiState.lastWeatherSlotCount == 0 ? kWeatherSlotCount : uiState.lastWeatherSlotCount));
+}
+
+static void renderWeatherFailureAndSleep(const PageManager& pages,
+                                         const BatteryStatus& battery,
+                                         const char* category) {
+  if (uiState.hasRenderedValidData && uiState.lastDisplayedPageSlot == pages.currentSlot()) {
+    Serial1.printf("[weather] failure : %s; keeping current weather page\n", category);
+    uiState.currentPageSlot = pages.currentSlot();
+    uiState.cyclesSinceRender++;
+    enterDeepSleep();
+  }
+
+  char subIndicator[12];
+  formatWeatherIndicator(subIndicator, sizeof(subIndicator));
+  PageRenderData renderData{};
+  renderData.weatherError = category;
+  renderData.subPageIndicator = subIndicator;
   pages.refreshCurrentPage(renderData, battery);
   uiState.currentPageSlot = pages.currentSlot();
   uiState.lastDisplayedPageSlot = pages.currentSlot();
@@ -359,6 +439,7 @@ void setup() {
                  hasSettings ? "present" : "missing",
                  settings.fromBootstrap ? " bootstrap" : "");
   Serial1.printf("[features] meal    : %s\n", kFeatureMealEnabled ? "enabled" : "disabled");
+  Serial1.printf("[features] weather : %s\n", kFeatureWeatherEnabled ? "enabled" : "disabled");
   logQuotaApiTarget(settings.quotaApiUrl);
   logPageRegistry();
 
@@ -382,17 +463,23 @@ void setup() {
     pages.nextPage();
     pageChanged = pages.currentSlot() != before;
   } else if (action.type == InputActionType::NextSubPage) {
+    bool handledSubPage = false;
 #if FEATURE_MEAL
     if (pages.currentPage().id == PageId::TodayMeal) {
       uiState.currentMealSlot = nextMealSlot(uiState.currentMealSlot, uiState.lastMealSlotCount);
-    } else {
+      handledSubPage = true;
+    }
+#endif
+#if FEATURE_WEATHER
+    if (pages.currentPage().id == PageId::Weather) {
+      uiState.currentWeatherSlot = nextWeatherSlot(uiState.currentWeatherSlot, uiState.lastWeatherSlotCount);
+      handledSubPage = true;
+    }
+#endif
+    if (!handledSubPage) {
       Serial1.println("[INPUT] subpage action ignored on page without subpages");
       reason = RefreshReason::Timer;
     }
-#else
-    Serial1.println("[INPUT] subpage action ignored; meal feature disabled");
-    reason = RefreshReason::Timer;
-#endif
   } else if (action.type == InputActionType::GoToPage && action.targetPageSlot > 0) {
     const uint8_t before = pages.currentSlot();
     if (pages.isValidSlot(action.targetPageSlot)) {
@@ -409,6 +496,11 @@ void setup() {
 #if FEATURE_MEAL
   if (pages.currentPage().id == PageId::TodayMeal) {
     formatMealIndicator(subIndicator, sizeof(subIndicator));
+  }
+#endif
+#if FEATURE_WEATHER
+  if (pages.currentPage().id == PageId::Weather) {
+    formatWeatherIndicator(subIndicator, sizeof(subIndicator));
   }
 #endif
   Serial1.printf("[NAV] P%u -> P%u reason=%s\n",
@@ -435,6 +527,10 @@ void setup() {
   MealImageMeta mealMeta{};
   MealImageMeta* mealMetaPtr = nullptr;
 #endif
+#if FEATURE_WEATHER
+  WeatherPayload weatherPayload{};
+  WeatherPayload* weatherPayloadPtr = nullptr;
+#endif
   bool wifiStillOn = false;
   if (needsWifi) {
     if (!hasSettings) {
@@ -445,6 +541,11 @@ void setup() {
 #if FEATURE_MEAL
       if (pages.currentPage().id == PageId::TodayMeal) {
         renderMealFailureAndSleep(pages, battery, "wifi");
+      }
+#endif
+#if FEATURE_WEATHER
+      if (pages.currentPage().id == PageId::Weather) {
+        renderWeatherFailureAndSleep(pages, battery, "wifi");
       }
 #endif
       if (!uiState.hasRenderedValidData) {
@@ -491,6 +592,21 @@ void setup() {
       logMealSummary(mealMeta);
     }
 #endif
+#if FEATURE_WEATHER
+    else if (pages.currentPage().id == PageId::Weather) {
+      FetchWeatherResult fetched = fetchWeatherPayload(settings.quotaApiUrl, uiState.currentWeatherSlot);
+      shutdownWifi();
+      if (!fetched.ok) {
+        renderWeatherFailureAndSleep(pages, battery, weatherErrorName(fetched.error));
+      }
+      uiState.currentWeatherSlot = fetched.payload.slot;
+      uiState.lastWeatherSlotCount = fetched.payload.slotCount;
+      formatWeatherIndicator(subIndicator, sizeof(subIndicator));
+      weatherPayload = fetched.payload;
+      weatherPayloadPtr = &weatherPayload;
+      logWeatherSummary(weatherPayload);
+    }
+#endif
   }
 
   uint32_t pagePayloadHash = 0;
@@ -504,6 +620,13 @@ void setup() {
     pagePayloadHash = mealPlaceholderHash();
   }
 #endif
+#if FEATURE_WEATHER
+  else if (pages.currentPage().id == PageId::Weather && weatherPayloadPtr) {
+    pagePayloadHash = weatherPayloadHash(*weatherPayloadPtr);
+  } else if (pages.currentPage().id == PageId::Weather) {
+    pagePayloadHash = weatherPlaceholderHash();
+  }
+#endif
   pagePayloadHash = mixHash(pagePayloadHash, batteryRenderHash(battery));
   const uint32_t pageHash = pages.currentPageContentHash(pagePayloadHash, indicator);
   RefreshDecision decision = ambiguousInput ?
@@ -514,9 +637,10 @@ void setup() {
   Serial1.printf("[render] decision : %s (%s)\n", decision.shouldRefresh ? "refresh" : "skip", decision.reason);
 
   if (decision.shouldRefresh) {
+    PageRenderData renderData{};
+    renderData.quotaPayload = payloadPtr;
 #if FEATURE_MEAL
     uint8_t* mealImage = nullptr;
-    const char* mealError = nullptr;
     if (pages.currentPage().id == PageId::TodayMeal) {
       mealImage = static_cast<uint8_t*>(ps_malloc(kMealImageBytes));
       if (!mealImage) {
@@ -537,9 +661,14 @@ void setup() {
       }
       Serial1.printf("[meal] raw bytes : %u\n", static_cast<unsigned>(raw.bytesRead));
     }
-    PageRenderData renderData{payloadPtr, mealImage, mealImage ? kMealImageBytes : 0, mealError, subIndicator};
-#else
-    PageRenderData renderData{payloadPtr};
+    renderData.mealImage4bpp = mealImage;
+    renderData.mealImageBytes = mealImage ? kMealImageBytes : 0;
+#endif
+#if FEATURE_WEATHER
+    renderData.weatherPayload = weatherPayloadPtr;
+#endif
+#if FEATURE_SUBPAGES
+    renderData.subPageIndicator = subIndicator;
 #endif
     pages.refreshCurrentPage(renderData, battery);
 #if FEATURE_MEAL

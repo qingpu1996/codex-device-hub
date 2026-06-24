@@ -1,5 +1,6 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { DashboardConfig, HealthStatus, SanitizedDashboardData } from "./types";
+import { handleAdminConfigRequest, type AdminConfigOptions } from "./adminConfig";
 import { buildDevicePayload, DEVICE_MAX_RESPONSE_BYTES } from "./devicePayload";
 import {
   buildDeviceMealPayload,
@@ -8,6 +9,7 @@ import {
   MEAL_RAW_BYTES,
   MEAL_RAW_CONTENT_TYPE,
 } from "./mealPlan";
+import { getDeviceWeatherPayload, WEATHER_MAX_RESPONSE_BYTES } from "./weather";
 
 const CACHE_CONTROL = "no-store, no-cache, must-revalidate";
 const CSP = "default-src 'none'; frame-ancestors 'none';";
@@ -17,9 +19,22 @@ export interface DashboardStateProvider {
   getHealth(): HealthStatus;
 }
 
-export function createDashboardHttpServer(config: DashboardConfig, provider: DashboardStateProvider): http.Server {
+export interface DashboardHttpServerOptions extends AdminConfigOptions {}
+
+export function createDashboardHttpServer(
+  config: DashboardConfig,
+  provider: DashboardStateProvider,
+  options: DashboardHttpServerOptions = {},
+): http.Server {
   return http.createServer((request, response) => {
-    void handleRequest(config, provider, request, response);
+    void handleRequest(config, provider, request, response, options).catch((error) => {
+      console.error(`[http] request failed: ${String(error)}`);
+      if (!response.headersSent) {
+        response.setHeader("Cache-Control", CACHE_CONTROL);
+        response.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+      }
+      response.end("Internal Server Error\n");
+    });
   });
 }
 
@@ -28,9 +43,14 @@ async function handleRequest(
   provider: DashboardStateProvider,
   request: IncomingMessage,
   response: ServerResponse,
+  options: DashboardHttpServerOptions,
 ): Promise<void> {
   const method = request.method ?? "GET";
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? config.bindHost}`);
+
+  if (await handleAdminConfigRequest(config, request, response, options)) {
+    return;
+  }
 
   if (method !== "GET" && method !== "HEAD") {
     return notFound(response);
@@ -78,6 +98,10 @@ async function handleRequest(
         "X-Meal-Status": assets.status,
       }, 512 * 1024);
     }
+    if (subpath === "weather") {
+      const payload = await getDeviceWeatherPayload(config.weather, pageSlot(url));
+      return json(response, payload, 200, true, WEATHER_MAX_RESPONSE_BYTES);
+    }
     return notFound(response);
   }
 
@@ -85,6 +109,10 @@ async function handleRequest(
 }
 
 function mealSlot(url: URL): number {
+  return pageSlot(url);
+}
+
+function pageSlot(url: URL): number {
   const value = Number(url.searchParams.get("slot") ?? "1");
   return Number.isFinite(value) && value >= 1 ? Math.floor(value) : 1;
 }

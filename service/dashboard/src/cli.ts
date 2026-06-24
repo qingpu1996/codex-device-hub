@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig, saveConfig, generateDeviceToken, ensureAppSupportDir } from "./cache";
+import { defaultWeatherConfig, loadConfig, saveConfig, generateDeviceToken, ensureAppSupportDir, normalizeWeatherConfig } from "./cache";
 import { detectDefaultNetwork } from "./network";
 import { configPath, launchAgentPath, logsDir, LABEL } from "./paths";
 import type { DashboardConfig } from "./types";
@@ -61,11 +61,13 @@ async function ensureConfig(args: Map<string, string>): Promise<void> {
     bindHost: existing?.bindHost ?? bindHost,
     port: existing?.port ?? port,
     deviceToken: existing?.deviceToken ?? generateDeviceToken(),
+    adminToken: existing?.adminToken ?? generateDeviceToken(),
     codexPath,
     nodePath,
     projectDir,
     networkInterface: existing?.networkInterface ?? networkInterface,
     interfaceMac: existing?.interfaceMac ?? interfaceMac,
+    weather: existing?.weather ? normalizeWeatherConfig(existing.weather, now) : defaultWeatherConfig(now),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
@@ -108,6 +110,10 @@ async function printStatus(): Promise<void> {
     }
   }
   console.log(`device_url=http://${config.bindHost}:${config.port}/api/device/${config.deviceToken}`);
+  console.log(`admin_config_url=http://${config.bindHost}:${config.port}/admin/${config.adminToken}/config`);
+  console.log(`weather_location=${config.weather.locationName}`);
+  console.log(`weather_provider=${config.weather.provider}`);
+  console.log(`weather_caiyun_token=${config.weather.caiyunToken ? "configured" : "missing"}`);
 
   try {
     const health = await fetch(`http://${config.bindHost}:${config.port}/healthz`, { cache: "no-store" });
@@ -207,6 +213,10 @@ function printConfigSummary(config: DashboardConfig): void {
   console.log(`config=${configPath()}`);
   console.log(`cache_dir=${path.dirname(configPath())}`);
   console.log(`device_url=http://${config.bindHost}:${config.port}/api/device/${config.deviceToken}`);
+  console.log(`admin_config_url=http://${config.bindHost}:${config.port}/admin/${config.adminToken}/config`);
+  console.log(`weather_location=${config.weather.locationName}`);
+  console.log(`weather_provider=${config.weather.provider}`);
+  console.log(`weather_caiyun_token=${config.weather.caiyunToken ? "configured" : "missing"}`);
 }
 
 function parseArgs(args: string[]): Map<string, string> {

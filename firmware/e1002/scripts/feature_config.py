@@ -9,6 +9,10 @@ FEATURES = {
         "default": "1",
         "disabled_src": ["meal_image_client.cpp"],
     },
+    "FEATURE_WEATHER": {
+        "default": "0",
+        "disabled_src": ["weather_client.cpp"],
+    },
 }
 
 TRUTHY = {"1", "true", "yes", "on", "enabled"}
