@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  service:
+    name: Service tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: service/dashboard/package-lock.json
+      - run: npm ci
+        working-directory: service/dashboard
+      - run: npm test -- --runInBand
+        working-directory: service/dashboard
+
+  firmware:
+    name: Firmware build and host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade platformio
+      - run: FEATURE_MEAL=1 FEATURE_WEATHER=1 scripts/build.sh
+        working-directory: firmware/e1002
+      - run: test/run_host_tests.sh
+        working-directory: firmware/e1002
+
+  public-readiness:
+    name: Public readiness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/public-readiness.sh

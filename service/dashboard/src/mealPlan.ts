@@ -87,9 +87,28 @@ export function mealExcelPath(): string {
   return process.env.CODEX_MEAL_EXCEL_PATH || MEAL_EXCEL_DEFAULT_PATH;
 }
 
-export async function getTodayMealAssets(now = new Date(), excelPath = mealExcelPath(), requestedSlot = 1): Promise<MealAssets> {
+export async function getTodayMealAssets(now = new Date(), excelPath = mealExcelPath(), requestedSlot = 1, enabled = true): Promise<MealAssets> {
   const date = localDateString(now);
   const weekday = weekdayLabel(now);
+  if (!enabled) {
+    const slot = normalizeSlot(requestedSlot);
+    const cacheKey = `${excelPath}:disabled:${date}:${slot}`;
+    if (cachedAssets?.key === cacheKey) {
+      return cachedAssets.assets;
+    }
+    const assets = await renderMealAssets({
+      status: "missing",
+      date,
+      weekday,
+      updatedText: "MEAL DISABLED",
+      requestedSlot: slot,
+      meals: [],
+      summary: null,
+      error: "Meal module disabled in Mac config",
+    });
+    cachedAssets = { key: cacheKey, assets };
+    return assets;
+  }
   const stat = await fs.stat(excelPath).catch(() => null);
   const slot = normalizeSlot(requestedSlot);
   const cacheKey = stat ? `${excelPath}:${stat.mtimeMs}:${date}:${slot}` : `${excelPath}:missing:${date}:${slot}`;

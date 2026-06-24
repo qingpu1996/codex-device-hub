@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { defaultWeatherConfig, loadConfig, saveConfig, generateDeviceToken, ensureAppSupportDir, normalizeWeatherConfig } from "./cache";
+import { defaultMealConfig, defaultWeatherConfig, loadConfig, saveConfig, generateDeviceToken, ensureAppSupportDir, normalizeMealConfig, normalizeWeatherConfig } from "./cache";
 import { detectDefaultNetwork } from "./network";
 import { configPath, launchAgentPath, logsDir, LABEL } from "./paths";
 import type { DashboardConfig } from "./types";
@@ -25,6 +25,9 @@ async function main(): Promise<void> {
       return;
     case "print-device-url":
       await printDeviceUrl();
+      return;
+    case "print-admin-config-url":
+      await printAdminConfigUrl();
       return;
     case "regenerate-device-token":
       await regenerateDeviceToken();
@@ -67,6 +70,7 @@ async function ensureConfig(args: Map<string, string>): Promise<void> {
     projectDir,
     networkInterface: existing?.networkInterface ?? networkInterface,
     interfaceMac: existing?.interfaceMac ?? interfaceMac,
+    meal: existing?.meal ? normalizeMealConfig(existing.meal, now) : defaultMealConfig(now),
     weather: existing?.weather ? normalizeWeatherConfig(existing.weather, now) : defaultWeatherConfig(now),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
@@ -84,6 +88,11 @@ async function ensureConfig(args: Map<string, string>): Promise<void> {
 async function printDeviceUrl(): Promise<void> {
   const config = await loadConfig();
   console.log(`http://${config.bindHost}:${config.port}/api/device/${config.deviceToken}`);
+}
+
+async function printAdminConfigUrl(): Promise<void> {
+  const config = await loadConfig();
+  console.log(`http://${config.bindHost}:${config.port}/admin/${config.adminToken}/config`);
 }
 
 async function printStatus(): Promise<void> {
@@ -111,6 +120,8 @@ async function printStatus(): Promise<void> {
   }
   console.log(`device_url=http://${config.bindHost}:${config.port}/api/device/${config.deviceToken}`);
   console.log(`admin_config_url=http://${config.bindHost}:${config.port}/admin/${config.adminToken}/config`);
+  console.log(`meal_enabled=${config.meal.enabled ? "yes" : "no"}`);
+  console.log(`meal_excel_path=${config.meal.excelPath}`);
   console.log(`weather_location=${config.weather.locationName}`);
   console.log(`weather_provider=${config.weather.provider}`);
   console.log(`weather_caiyun_token=${config.weather.caiyunToken ? "configured" : "missing"}`);
@@ -214,6 +225,8 @@ function printConfigSummary(config: DashboardConfig): void {
   console.log(`cache_dir=${path.dirname(configPath())}`);
   console.log(`device_url=http://${config.bindHost}:${config.port}/api/device/${config.deviceToken}`);
   console.log(`admin_config_url=http://${config.bindHost}:${config.port}/admin/${config.adminToken}/config`);
+  console.log(`meal_enabled=${config.meal.enabled ? "yes" : "no"}`);
+  console.log(`meal_excel_path=${config.meal.excelPath}`);
   console.log(`weather_location=${config.weather.locationName}`);
   console.log(`weather_provider=${config.weather.provider}`);
   console.log(`weather_caiyun_token=${config.weather.caiyunToken ? "configured" : "missing"}`);

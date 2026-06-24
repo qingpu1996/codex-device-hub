@@ -8,8 +8,15 @@ export interface DashboardConfig {
   projectDir: string;
   networkInterface: string;
   interfaceMac: string;
+  meal: MealConfig;
   weather: WeatherConfig;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface MealConfig {
+  enabled: boolean;
+  excelPath: string;
   updatedAt: string;
 }
 

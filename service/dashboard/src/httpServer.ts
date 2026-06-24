@@ -81,18 +81,18 @@ async function handleRequest(
       return json(response, payload, 200, true, DEVICE_MAX_RESPONSE_BYTES);
     }
     if (subpath === "meal/today") {
-      const assets = await getTodayMealAssets(new Date(), undefined, mealSlot(url));
+      const assets = await getTodayMealAssets(new Date(), config.meal.excelPath, mealSlot(url), config.meal.enabled);
       return json(response, buildDeviceMealPayload(assets), 200, true, 2048);
     }
     if (subpath === "meal/today.raw") {
-      const assets = await getTodayMealAssets(new Date(), undefined, mealSlot(url));
+      const assets = await getTodayMealAssets(new Date(), config.meal.excelPath, mealSlot(url), config.meal.enabled);
       return binary(response, assets.raw4bpp, MEAL_RAW_CONTENT_TYPE, {
         "X-Meal-Image-Hash": assets.imageHash,
         "X-Meal-Status": assets.status,
       }, MEAL_RAW_BYTES);
     }
     if (subpath === "meal/today.png") {
-      const assets = await getTodayMealAssets(new Date(), undefined, mealSlot(url));
+      const assets = await getTodayMealAssets(new Date(), config.meal.excelPath, mealSlot(url), config.meal.enabled);
       return binary(response, assets.png, MEAL_PNG_CONTENT_TYPE, {
         "X-Meal-Image-Hash": assets.imageHash,
         "X-Meal-Status": assets.status,

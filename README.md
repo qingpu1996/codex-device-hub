@@ -9,6 +9,8 @@
 ```text
 service/dashboard/   macOS Node.js 服务，提供设备 JSON API、食谱图片接口、天气接口和本地配置页
 firmware/e1002/      PlatformIO Arduino 固件，运行在 reTerminal E1002
+scripts/             仓库级检查脚本
+.github/workflows/   GitHub Actions CI
 ```
 
 如果本机仍保留旧的独立服务目录或旧固件目录，它们只作为迁移备份，不再作为正式开发入口。
@@ -203,7 +205,16 @@ scripts/status.sh
 http://<Mac-IP>:19527/admin/<adminToken>/config
 ```
 
-`adminToken` 是本机私有配置，不能提交到 Git。当前配置页用于天气模块，后续新增模块也应复用这个入口，而不是把模块参数写死在固件里。彩云 token 只保存在 Mac 本机私有配置中，不会下发到 E1002。
+`adminToken` 是本机私有配置，不能提交到 Git。当前配置页是模块控制台：
+
+- 显示 Codex、每日食谱、天气的服务端状态。
+- 保存食谱 Excel 路径。
+- 启用或关闭服务端食谱/天气能力。
+- 选择天气 provider 并保存彩云 token。
+- 提供“保存并测试天气”按钮。
+- 给出建议的 `FEATURE_MEAL` 和 `FEATURE_WEATHER` 组合。
+
+配置页只控制 Mac 服务端能力。固件是否包含某个页面仍由烧录时的 `scripts/install.sh` 或 `FEATURE_*` 决定。彩云 token 只保存在 Mac 本机私有配置中，不会下发到 E1002，也不会在配置页回显。
 
 ## 隐私和公开仓库边界
 
@@ -228,7 +239,14 @@ http://<Mac-IP>:19527/admin/<adminToken>/config
 
 ```bash
 git status --short --ignored
-git grep -nI -E 'sk-|Bearer |WIFI_PASSWORD|api/device/[A-Za-z0-9._-]{16,}|auth\.json'
+scripts/public-readiness.sh
 ```
 
 预期只会看到示例、测试 token、空密码占位符或“不要读取 auth.json”的说明。
+
+GitHub Actions 会运行：
+
+- `service/dashboard` 的 TypeScript build 和 Node tests。
+- `firmware/e1002` 的 PlatformIO build。
+- 固件 host tests 的所有 feature 组合。
+- 公开仓库敏感文件检查。

@@ -74,6 +74,7 @@ done
 "$NODE_BIN" "$PROJECT_DIR/dist/src/cli.js" healthcheck
 
 FINAL_URL="$("$NODE_BIN" "$PROJECT_DIR/dist/src/cli.js" print-device-url)"
+ADMIN_CONFIG_URL="$("$NODE_BIN" "$PROJECT_DIR/dist/src/cli.js" print-admin-config-url)"
 
 echo
 echo "Installed $LABEL"
@@ -84,6 +85,7 @@ echo "Interface: $DEFAULT_INTERFACE"
 echo "IPv4: $LAN_IP"
 echo "MAC: $MAC_ADDRESS"
 echo "Device API URL: $FINAL_URL"
+echo "Admin config URL: $ADMIN_CONFIG_URL"
 echo "Logs: $STDOUT_LOG"
 echo "Logs: $STDERR_LOG"
 echo

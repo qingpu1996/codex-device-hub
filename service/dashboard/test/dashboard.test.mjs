@@ -349,7 +349,9 @@ test("device meal raw endpoint returns fixed-size 4bpp image", async () => {
   const config = testConfig();
   const previousPath = process.env.CODEX_MEAL_EXCEL_PATH;
   process.env.CODEX_MEAL_EXCEL_PATH = "/tmp/codex-quota-dashboard-missing-meal.xlsx";
-  const server = createDashboardHttpServer(config, provider(normalizeQuotaData(account("pro"), multiBucketLimits(), { now })));
+  const server = createDashboardHttpServer(config, provider(normalizeQuotaData(account("pro"), multiBucketLimits(), { now })), {
+    saveConfig: async () => {},
+  });
   await listen(server);
   try {
     const response = await fetch(`${localBase(server)}/api/device/${config.deviceToken}/meal/today.raw`);
@@ -365,6 +367,26 @@ test("device meal raw endpoint returns fixed-size 4bpp image", async () => {
     } else {
       process.env.CODEX_MEAL_EXCEL_PATH = previousPath;
     }
+  }
+});
+
+test("device meal endpoint can be disabled from Mac config", async () => {
+  const { createDashboardHttpServer } = modules().httpServer;
+  const { normalizeQuotaData } = modules().normalizer;
+  const config = testConfig();
+  config.meal.enabled = false;
+  config.meal.excelPath = "/tmp/codex-quota-dashboard-disabled-meal.xlsx";
+  const server = createDashboardHttpServer(config, provider(normalizeQuotaData(account("pro"), multiBucketLimits(), { now })));
+  await listen(server);
+  try {
+    const response = await fetch(`${localBase(server)}/api/device/${config.deviceToken}/meal/today`);
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.status, "missing");
+    assert.equal(body.updatedText, "MEAL DISABLED");
+    assert.equal(body.image.rawBytes, 192000);
+  } finally {
+    await close(server);
   }
 });
 
@@ -484,9 +506,14 @@ test("admin config page requires admin token and saves weather config without ex
     assert.equal(page.status, 200);
     assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'none'/);
     assert.equal(html.includes(config.deviceToken), false);
+    assert.equal(html.includes(config.adminToken), false);
     assert.equal(html.includes("secret-caiyun-token"), false);
+    assert.equal(html.includes("模块总览"), true);
+    assert.equal(html.includes("FEATURE_MEAL=1"), true);
 
     const form = new URLSearchParams({
+      mealEnabled: "1",
+      mealExcelPath: "/tmp/private-meal-plan.xlsx",
       weatherEnabled: "1",
       provider: "caiyun-v2.6",
       caiyunToken: "secret-caiyun-token",
@@ -501,6 +528,8 @@ test("admin config page requires admin token and saves weather config without ex
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
     assert.equal(response.status, 200);
+    assert.equal(saved.meal.enabled, true);
+    assert.equal(saved.meal.excelPath, "/tmp/private-meal-plan.xlsx");
     assert.equal(saved.weather.locationName, "Hangzhou Yuhang West");
     assert.equal(saved.weather.latitude, 30.426);
     assert.equal(saved.weather.longitude, 120.289);
@@ -508,6 +537,8 @@ test("admin config page requires admin token and saves weather config without ex
     assert.equal(saved.weather.caiyunToken, "secret-caiyun-token");
 
     const secondForm = new URLSearchParams({
+      mealEnabled: "1",
+      mealExcelPath: "/tmp/private-meal-plan.xlsx",
       weatherEnabled: "1",
       provider: "caiyun-v2.6",
       locationName: "Hangzhou Yuhang West",
@@ -531,6 +562,49 @@ test("admin config page requires admin token and saves weather config without ex
     assert.equal(saved.weather.caiyunToken, undefined);
   } finally {
     await close(server);
+  }
+});
+
+test("admin config page can test weather without exposing provider token", async () => {
+  const { createDashboardHttpServer } = modules().httpServer;
+  const { normalizeQuotaData } = modules().normalizer;
+  const { resetWeatherCacheForTests } = modules().weather;
+  const config = testConfig();
+  resetWeatherCacheForTests();
+  const restoreFetch = mockWeatherFetch();
+  const server = createDashboardHttpServer(config, provider(normalizeQuotaData(account("pro"), multiBucketLimits(), { now })), {
+    saveConfig: async () => {},
+  });
+  await listen(server);
+  try {
+    const form = new URLSearchParams({
+      action: "test-weather",
+      mealEnabled: "1",
+      mealExcelPath: config.meal.excelPath,
+      weatherEnabled: "1",
+      provider: "caiyun-v2.6",
+      caiyunToken: "test-caiyun-token-keep-private",
+      locationName: "Hangzhou Yuhang",
+      latitude: "30.42",
+      longitude: "120.30",
+      timezone: "Asia/Shanghai",
+    });
+    const response = await fetch(`${localBase(server)}/admin/${config.adminToken}/config`, {
+      method: "POST",
+      body: form,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+    const html = await response.text();
+    assert.equal(response.status, 200);
+    assert.match(html, /天气连接测试/);
+    assert.match(html, /caiyun-v2\.6/);
+    assert.equal(html.includes("test-caiyun-token-keep-private"), false);
+    assert.equal(html.includes(config.deviceToken), false);
+    assert.equal(html.includes(config.adminToken), false);
+  } finally {
+    await close(server);
+    restoreFetch();
+    resetWeatherCacheForTests();
   }
 });
 
@@ -649,6 +723,11 @@ function testConfig() {
     projectDir: process.cwd(),
     networkInterface: "lo0",
     interfaceMac: "00:00:00:00:00:00",
+    meal: {
+      enabled: true,
+      excelPath: "/tmp/codex-quota-dashboard-test-meal.xlsx",
+      updatedAt: now.toISOString(),
+    },
     weather: {
       enabled: true,
       provider: "open-meteo",
@@ -665,7 +744,7 @@ function testConfig() {
 
 function mockWeatherFetch() {
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, init) => {
     const value = String(url);
     if (value.includes("air-quality-api.open-meteo.com")) {
       return new Response(JSON.stringify({
@@ -787,7 +866,7 @@ function mockWeatherFetch() {
         },
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-    return realFetch(url);
+    return realFetch(url, init);
   };
   return () => {
     globalThis.fetch = realFetch;

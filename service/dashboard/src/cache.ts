@@ -1,9 +1,10 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
-import type { DashboardConfig, SanitizedDashboardData, WeatherConfig } from "./types";
+import type { DashboardConfig, MealConfig, SanitizedDashboardData, WeatherConfig } from "./types";
 import { appSupportDir, cachePath, configPath } from "./paths";
 import { safeJsonParse } from "./util";
+import { mealExcelPath, MEAL_EXCEL_DEFAULT_PATH } from "./mealPlan";
 
 export async function ensureAppSupportDir(home?: string): Promise<string> {
   const dir = appSupportDir(home);
@@ -27,6 +28,16 @@ export async function loadConfig(home?: string): Promise<DashboardConfig> {
   if (!config.adminToken) {
     config.adminToken = generateDeviceToken();
     changed = true;
+  }
+  if (!config.meal) {
+    config.meal = defaultMealConfig(config.updatedAt ?? new Date().toISOString());
+    changed = true;
+  } else {
+    const upgraded = normalizeMealConfig(config.meal, config.updatedAt ?? new Date().toISOString());
+    if (JSON.stringify(upgraded) !== JSON.stringify(config.meal)) {
+      config.meal = upgraded;
+      changed = true;
+    }
   }
   if (!config.weather) {
     config.weather = defaultWeatherConfig(config.updatedAt ?? new Date().toISOString());
@@ -85,6 +96,22 @@ export function defaultWeatherConfig(updatedAt = new Date().toISOString()): Weat
     longitude: 120.30,
     timezone: "Asia/Shanghai",
     updatedAt,
+  };
+}
+
+export function defaultMealConfig(updatedAt = new Date().toISOString()): MealConfig {
+  return {
+    enabled: true,
+    excelPath: mealExcelPath(),
+    updatedAt,
+  };
+}
+
+export function normalizeMealConfig(input: Partial<MealConfig>, updatedAt = new Date().toISOString()): MealConfig {
+  return {
+    enabled: input.enabled !== false,
+    excelPath: typeof input.excelPath === "string" && input.excelPath.trim() ? input.excelPath.trim().slice(0, 512) : MEAL_EXCEL_DEFAULT_PATH,
+    updatedAt: typeof input.updatedAt === "string" && input.updatedAt ? input.updatedAt : updatedAt,
   };
 }
 

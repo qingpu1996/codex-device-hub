@@ -101,18 +101,25 @@ GET http://<Mac-IP>:19527/admin/<adminToken>/config
 ~/Library/Application Support/CodexQuotaDashboard/config.json
 ```
 
-当前配置页用于天气模块：
+当前配置页是模块控制台：
 
+- Codex 额度页始终启用，配置页只显示状态。
+- 是否启用服务端食谱数据。
+- 食谱 Excel 路径。
 - 是否启用服务端天气数据。
 - 天气源：`open-meteo` 或 `caiyun-v2.6`。
 - 彩云天气 token，输入框留空会保留旧 token，勾选清除才会删除。
 - 地点名称，默认 `Hangzhou Yuhang`。
 - 纬度、经度，默认约为杭州余杭。
 - 时区，默认 `Asia/Shanghai`。
+- “保存并测试天气”，用于验证当前 provider 是否能返回设备 JSON。
+- 建议的固件 feature：`FEATURE_MEAL` 和 `FEATURE_WEATHER`。
 
 天气接口实际使用经纬度。`locationName` 只用于 E1002 屏幕显示，不参与天气源定位。详细地址自动解析经纬度需要另接地理编码服务，例如高德或腾讯地图，本阶段还没有启用。
 
 配置页只在局域网服务上开放，不需要公网。不要把带 `adminToken` 的完整 URL 提交到 Git、日志或公开文档。彩云 token 只保存在 Mac 本机私有配置中，不会下发到 E1002，也不会在配置页回显。
+
+配置页只控制服务端能力。固件是否包含食谱页或天气页仍由 `firmware/e1002/scripts/install.sh` 的模块选择决定。
 
 ## 设备 API
 
@@ -370,9 +377,16 @@ http://<Mac-IP>:19527/api/device/<deviceToken>
 - 日志
 - 完整设备 API URL
 - device token
-- Excel 的私人路径或私人内容
+- admin token
+- Excel 的私人内容
 
 日志和 API 响应不应包含 Wi-Fi 密码、OAuth token、Cookie、邮箱或账户 ID。
+
+公开仓库前从仓库根目录运行：
+
+```bash
+scripts/public-readiness.sh
+```
 
 ## 开发验证
 
@@ -393,5 +407,5 @@ npm test
 - API 脱敏和响应大小限制。
 - 食谱 Excel 解析、图片元数据和 raw 图片接口。
 - 天气接口 token 校验、缓存回退和响应脱敏。
-- 配置页 token 校验和天气配置保存。
+- 配置页 token 校验、模块配置保存和天气连接测试。
 - `Cache-Control: no-store` 和基础响应头。

@@ -75,6 +75,8 @@ scripts/install.sh
 
 `scripts/build.sh` 和 `scripts/flash.sh` 会自动读取这个文件。
 
+Mac 配置页会显示建议的 `FEATURE_MEAL` 和 `FEATURE_WEATHER`，但不会自动替你重新编译固件。切换服务端模块后，如果需要让 E1002 增减页面，仍需重新运行本脚本并烧录。
+
 ## 构建和测试
 
 ```bash
