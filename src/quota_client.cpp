@@ -69,6 +69,18 @@ ParseResult parseQuotaJson(const char* json, size_t length, QuotaPayload* out) {
     return {false, QuotaError::InvalidStatus};
   }
 
+  JsonObject usage = doc["usage"].as<JsonObject>();
+  if (!usage.isNull()) {
+    const bool hasTotal = copyString(out->totalTokensText, sizeof(out->totalTokensText), usage["totalTokensText"].as<const char*>(), &formatIssue);
+    const bool hasToday = copyString(out->todayTokensText, sizeof(out->todayTokensText), usage["todayTokensText"].as<const char*>(), &formatIssue);
+    out->hasUsage = hasTotal && hasToday;
+    if (!out->hasUsage) {
+      formatIssue = true;
+      out->totalTokensText[0] = '\0';
+      out->todayTokensText[0] = '\0';
+    }
+  }
+
   JsonArray windows = doc["windows"].as<JsonArray>();
   if (windows.isNull() || windows.size() == 0) {
     return {false, QuotaError::NoWindows};
@@ -130,6 +142,10 @@ uint32_t quotaRenderHash(const QuotaPayload& payload) {
   uint32_t hash = 2166136261UL;
   hash = hashCString(hash, payload.plan);
   hash = hashCString(hash, payload.status);
+  if (payload.hasUsage) {
+    hash = hashCString(hash, payload.totalTokensText);
+    hash = hashCString(hash, payload.todayTokensText);
+  }
   for (size_t i = 0; i < payload.windowCount; ++i) {
     const QuotaWindow& window = payload.windows[i];
     hash = hashCString(hash, window.title);

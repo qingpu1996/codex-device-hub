@@ -12,7 +12,7 @@
 #include "provisioning.h"
 #include "quota_client.h"
 
-static constexpr const char* FIRMWARE_VERSION = "codex-e1002-quota-0.5.0";
+static constexpr const char* FIRMWARE_VERSION = "codex-e1002-quota-0.5.1";
 static constexpr int kDbgRx = 44;
 static constexpr int kDbgTx = 43;
 static constexpr uint32_t kWifiConnectTimeoutMs = 15000;
@@ -75,6 +75,10 @@ static void logPayloadSummary(const QuotaPayload& payload) {
   Serial1.printf("[json] schema    : %d\n", payload.schemaVersion);
   Serial1.printf("[json] plan      : %s\n", payload.plan);
   Serial1.printf("[json] status    : %s%s\n", payload.status, payload.hadFormatIssue ? " format-issue" : "");
+  if (payload.hasUsage) {
+    Serial1.printf("[usage] total    : %s\n", payload.totalTokensText);
+    Serial1.printf("[usage] today    : %s\n", payload.todayTokensText);
+  }
   for (size_t i = 0; i < payload.windowCount; ++i) {
     Serial1.printf("[quota] %s       : %d%% reset=%s\n",
                    payload.windows[i].title,

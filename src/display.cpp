@@ -87,6 +87,14 @@ static void drawFooter(const char* pageIndicator, const char* subPageIndicator, 
   text(pageIndicator, 766, 432, 2, TFT_BLACK, TR_DATUM);
 }
 
+static void drawUsageMetric(const char* label, const char* value, int centerX, uint16_t valueColor) {
+  if (!value || value[0] == '\0') {
+    return;
+  }
+  centered(label, centerX, 20, 2, TFT_BLACK);
+  centered(value, centerX, 50, 2, valueColor);
+}
+
 void renderQuotaPage(const QuotaPayload& payload, const char* pageIndicator, const BatteryStatus& battery) {
   epaper.begin();
   epaper.fillScreen(TFT_WHITE);
@@ -96,6 +104,10 @@ void renderQuotaPage(const QuotaPayload& payload, const char* pageIndicator, con
 
   text("CODEX", 28, 24, 4, TFT_BLUE);
   centered(payload.plan, 400, 36, 4, TFT_BLACK);
+  if (payload.hasUsage) {
+    drawUsageMetric("TOTAL", payload.totalTokensText, 250, TFT_BLUE);
+    drawUsageMetric("TODAY", payload.todayTokensText, 550, TFT_GREEN);
+  }
 
   const char* status = strcmp(payload.status, "fresh") == 0 ? "ONLINE" :
                        strcmp(payload.status, "cached") == 0 ? "CACHED" : "STALE";

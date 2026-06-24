@@ -28,8 +28,21 @@ static void test_normal_json() {
   assert(payload.schemaVersion == 1);
   assert(strcmp(payload.plan, "PRO") == 0);
   assert(strcmp(payload.status, "fresh") == 0);
+  assert(!payload.hasUsage);
   assert(payload.windowCount == 2);
   assert(payload.windows[0].remainingPercent == 73);
+}
+
+static void test_usage_json() {
+  const char* json =
+    "{\"schemaVersion\":1,\"generatedAt\":1780000000,\"plan\":\"PRO\",\"status\":\"fresh\","
+    "\"usage\":{\"totalTokensText\":\"1.4B\",\"todayTokensText\":\"3.62M\"},"
+    "\"windows\":[{\"key\":\"five_hour\",\"title\":\"5 HOUR\",\"remainingPercent\":73,"
+    "\"resetsAt\":1780003600,\"resetText\":\"Jun 23 21:40\"}]}";
+  QuotaPayload payload = parseOk(json);
+  assert(payload.hasUsage);
+  assert(strcmp(payload.totalTokensText, "1.4B") == 0);
+  assert(strcmp(payload.todayTokensText, "3.62M") == 0);
 }
 
 static void test_schema_wrong() {
@@ -114,6 +127,22 @@ static void test_hash_status_changes() {
     "\"resetsAt\":1780003600,\"resetText\":\"Jun 23 21:40\"}]}";
   QuotaPayload b = parseOk(changed);
   assert(quotaRenderHash(a) != quotaRenderHash(b));
+}
+
+static void test_hash_usage_changes() {
+  const char* a =
+    "{\"schemaVersion\":1,\"generatedAt\":1780000000,\"plan\":\"PRO\",\"status\":\"fresh\","
+    "\"usage\":{\"totalTokensText\":\"1.4B\",\"todayTokensText\":\"3.62M\"},"
+    "\"windows\":[{\"key\":\"five_hour\",\"title\":\"5 HOUR\",\"remainingPercent\":73,"
+    "\"resetsAt\":1780003600,\"resetText\":\"Jun 23 21:40\"}]}";
+  const char* b =
+    "{\"schemaVersion\":1,\"generatedAt\":1780000000,\"plan\":\"PRO\",\"status\":\"fresh\","
+    "\"usage\":{\"totalTokensText\":\"1.4B\",\"todayTokensText\":\"4.1M\"},"
+    "\"windows\":[{\"key\":\"five_hour\",\"title\":\"5 HOUR\",\"remainingPercent\":73,"
+    "\"resetsAt\":1780003600,\"resetText\":\"Jun 23 21:40\"}]}";
+  QuotaPayload pa = parseOk(a);
+  QuotaPayload pb = parseOk(b);
+  assert(quotaRenderHash(pa) != quotaRenderHash(pb));
 }
 
 static void test_network_failure_existing_valid_no_error_refresh() {
@@ -440,6 +469,7 @@ static void test_meal_meta_hash_uses_image_hash_not_generated_at() {
 
 int main() {
   test_normal_json();
+  test_usage_json();
   test_schema_wrong();
   test_missing_windows();
   test_percentage_out_of_range();
@@ -448,6 +478,7 @@ int main() {
   test_hash_ignores_generated_at();
   test_hash_percent_changes();
   test_hash_status_changes();
+  test_hash_usage_changes();
   test_network_failure_existing_valid_no_error_refresh();
   test_manual_wake_forces_refresh();
   test_twelve_cycles_force_refresh();

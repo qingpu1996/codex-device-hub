@@ -9,6 +9,7 @@ static constexpr size_t kPlanLen = 16;
 static constexpr size_t kStatusLen = 8;
 static constexpr size_t kTitleLen = 16;
 static constexpr size_t kResetTextLen = 24;
+static constexpr size_t kTokenTextLen = 12;
 
 struct QuotaWindow {
   char key[16];
@@ -24,9 +25,12 @@ struct QuotaPayload {
   int64_t generatedAt;
   char plan[kPlanLen];
   char status[kStatusLen];
+  char totalTokensText[kTokenTextLen];
+  char todayTokensText[kTokenTextLen];
   QuotaWindow windows[kMaxQuotaWindows];
   size_t windowCount;
   bool hadFormatIssue;
+  bool hasUsage;
 };
 
 enum class QuotaError {
