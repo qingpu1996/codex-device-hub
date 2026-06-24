@@ -8,10 +8,9 @@ import {
   MEAL_RAW_BYTES,
   MEAL_RAW_CONTENT_TYPE,
 } from "./mealPlan";
-import { renderDashboardHtml } from "./render";
 
 const CACHE_CONTROL = "no-store, no-cache, must-revalidate";
-const CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src 'none'; frame-ancestors * http: https: file:;";
+const CSP = "default-src 'none'; frame-ancestors 'none';";
 
 export interface DashboardStateProvider {
   getData(): SanitizedDashboardData | null;
@@ -48,29 +47,7 @@ async function handleRequest(
     return;
   }
 
-  const pagePrefix = "/e1002/";
-  const apiPrefix = "/api/e1002/";
   const devicePrefix = "/api/device/";
-  if (url.pathname.startsWith(pagePrefix)) {
-    const token = decodeURIComponent(url.pathname.slice(pagePrefix.length));
-    if (token !== config.accessToken) {
-      return notFound(response);
-    }
-    const data = provider.getData() ?? emptyData(false);
-    setNoCacheHeaders(response);
-    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    response.end(renderDashboardHtml(data));
-    return;
-  }
-
-  if (url.pathname.startsWith(apiPrefix)) {
-    const token = decodeURIComponent(url.pathname.slice(apiPrefix.length));
-    if (token !== config.accessToken) {
-      return notFound(response);
-    }
-    return json(response, provider.getData() ?? emptyData(false), 200, true);
-  }
-
   if (url.pathname.startsWith(devicePrefix)) {
     const suffix = url.pathname.slice(devicePrefix.length);
     const [encodedToken = "", ...subpathParts] = suffix.split("/");

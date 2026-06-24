@@ -10,7 +10,6 @@ function modules() {
     jsonl: require("../dist/src/jsonl.js"),
     jsonRpc: require("../dist/src/jsonRpc.js"),
     normalizer: require("../dist/src/normalizer.js"),
-    render: require("../dist/src/render.js"),
     httpServer: require("../dist/src/httpServer.js"),
     devicePayload: require("../dist/src/devicePayload.js"),
     mealPlan: require("../dist/src/mealPlan.js"),
@@ -244,7 +243,7 @@ test("app server failure can mark old cache as stale", () => {
   assert.equal(stale.windows.length, cached.windows.length);
 });
 
-test("correct token returns 200 and wrong token returns 404", async () => {
+test("legacy page routes return 404", async () => {
   const { createDashboardHttpServer } = modules().httpServer;
   const { normalizeQuotaData } = modules().normalizer;
   const config = testConfig();
@@ -253,39 +252,8 @@ test("correct token returns 200 and wrong token returns 404", async () => {
   await listen(server);
   try {
     const base = localBase(server);
-    assert.equal((await fetch(`${base}/e1002/${config.accessToken}`)).status, 200);
-    assert.equal((await fetch(`${base}/e1002/bad-token`)).status, 404);
-  } finally {
-    await close(server);
-  }
-});
-
-test("wrong API token returns 404", async () => {
-  const { createDashboardHttpServer } = modules().httpServer;
-  const { normalizeQuotaData } = modules().normalizer;
-  const config = testConfig();
-  const server = createDashboardHttpServer(config, provider(normalizeQuotaData(account(), multiBucketLimits(), { now })));
-  await listen(server);
-  try {
-    assert.equal((await fetch(`${localBase(server)}/api/e1002/bad-token`)).status, 404);
-  } finally {
-    await close(server);
-  }
-});
-
-test("API returns sanitized quota JSON for the correct token", async () => {
-  const { createDashboardHttpServer } = modules().httpServer;
-  const { normalizeQuotaData } = modules().normalizer;
-  const config = testConfig();
-  const server = createDashboardHttpServer(config, provider(normalizeQuotaData(account(), multiBucketLimits(), { now })));
-  await listen(server);
-  try {
-    const response = await fetch(`${localBase(server)}/api/e1002/${config.accessToken}`);
-    const text = await response.text();
-    assert.equal(response.status, 200);
-    assert.equal(text.includes("private@example.com"), false);
-    assert.equal(text.includes(config.accessToken), false);
-    assert.match(text, /"displayWindows"/);
+    assert.equal((await fetch(`${base}/e1002/old-page-token`)).status, 404);
+    assert.equal((await fetch(`${base}/api/e1002/old-page-token`)).status, 404);
   } finally {
     await close(server);
   }
@@ -299,7 +267,7 @@ test("device API requires independent device token", async () => {
   await listen(server);
   try {
     const base = localBase(server);
-    assert.equal((await fetch(`${base}/api/device/${config.accessToken}`)).status, 404);
+    assert.equal((await fetch(`${base}/api/device/test-page-token-12345678901234567890123456789012`)).status, 404);
     assert.equal((await fetch(`${base}/api/device/bad-token`)).status, 404);
     assert.equal((await fetch(`${base}/api/device/${config.deviceToken}`)).status, 200);
   } finally {
@@ -333,7 +301,6 @@ test("device API returns bounded no-store schema v1 payload", async () => {
     assert.equal(body.windows[0].remainingPercent >= 0 && body.windows[0].remainingPercent <= 100, true);
     assert.match(body.windows[0].resetText, /^[A-Z][a-z]{2} \d{2} \d{2}:\d{2}$/);
     assert.equal(text.includes("private@example.com"), false);
-    assert.equal(text.includes(config.accessToken), false);
     assert.equal(text.includes(config.deviceToken), false);
     assert.equal(text.includes("rateLimitsByLimitId"), false);
     assert.equal(text.includes("dailyUsageBuckets"), false);
@@ -482,53 +449,20 @@ test("robots.txt blocks all crawlers", async () => {
   }
 });
 
-test("HTML does not leak email, access token, auth path, or raw RPC names", () => {
-  const { normalizeQuotaData } = modules().normalizer;
-  const { renderDashboardHtml } = modules().render;
-  const config = testConfig();
-  const data = normalizeQuotaData(account(), multiBucketLimits(), { now });
-  const html = renderDashboardHtml(data);
-  assert.equal(html.includes("private@example.com"), false);
-  assert.equal(html.includes(config.accessToken), false);
-  assert.equal(html.includes("auth.json"), false);
-  assert.equal(html.includes("rateLimitsByLimitId"), false);
-});
-
-test("HTML has no external scripts, fonts, CSS, JavaScript, gradients, or animations", () => {
-  const html = sampleHtml();
-  assert.equal(/<script/i.test(html), false);
-  assert.equal(/javascript:/i.test(html), false);
-  assert.equal(/<link/i.test(html), false);
-  assert.equal(/@font-face/i.test(html), false);
-  assert.equal(/https?:\/\//i.test(html), false);
-  assert.equal(/linear-gradient|radial-gradient|animation|transition|@keyframes/i.test(html), false);
-});
-
-test("iframe headers omit X-Frame-Options and include frame-ancestors", async () => {
+test("device API headers are no-store and do not enable browser embedding", async () => {
   const { createDashboardHttpServer } = modules().httpServer;
   const { normalizeQuotaData } = modules().normalizer;
   const config = testConfig();
   const server = createDashboardHttpServer(config, provider(normalizeQuotaData(account(), multiBucketLimits(), { now })));
   await listen(server);
   try {
-    const response = await fetch(`${localBase(server)}/e1002/${config.accessToken}`, { method: "HEAD" });
+    const response = await fetch(`${localBase(server)}/api/device/${config.deviceToken}`, { method: "HEAD" });
+    const csp = response.headers.get("content-security-policy");
     assert.equal(response.status, 200);
-    assert.equal(response.headers.has("x-frame-options"), false);
-    assert.match(response.headers.get("content-security-policy"), /frame-ancestors \*/);
     assert.match(response.headers.get("cache-control"), /no-store/);
-  } finally {
-    await close(server);
-  }
-});
-
-test("response avoids COEP COOP and CORP headers", async () => {
-  const { createDashboardHttpServer } = modules().httpServer;
-  const { normalizeQuotaData } = modules().normalizer;
-  const config = testConfig();
-  const server = createDashboardHttpServer(config, provider(normalizeQuotaData(account(), multiBucketLimits(), { now })));
-  await listen(server);
-  try {
-    const response = await fetch(`${localBase(server)}/e1002/${config.accessToken}`, { method: "HEAD" });
+    assert.match(csp, /default-src 'none'/);
+    assert.match(csp, /frame-ancestors 'none'/);
+    assert.equal(response.headers.has("x-frame-options"), false);
     assert.equal(response.headers.has("cross-origin-embedder-policy"), false);
     assert.equal(response.headers.has("cross-origin-opener-policy"), false);
     assert.equal(response.headers.has("cross-origin-resource-policy"), false);
@@ -537,47 +471,10 @@ test("response avoids COEP COOP and CORP headers", async () => {
   }
 });
 
-test("CSP blocks scripts while allowing iframe ancestors", async () => {
-  const { createDashboardHttpServer } = modules().httpServer;
-  const { normalizeQuotaData } = modules().normalizer;
-  const config = testConfig();
-  const server = createDashboardHttpServer(config, provider(normalizeQuotaData(account(), multiBucketLimits(), { now })));
-  await listen(server);
-  try {
-    const response = await fetch(`${localBase(server)}/e1002/${config.accessToken}`, { method: "HEAD" });
-    const csp = response.headers.get("content-security-policy");
-    assert.match(csp, /default-src 'none'/);
-    assert.match(csp, /script-src 'none'/);
-    assert.match(csp, /img-src data:/);
-    assert.match(csp, /frame-ancestors \*/);
-  } finally {
-    await close(server);
-  }
-});
-
-test("page is fixed at 800x480 with no scroll or overflow", () => {
-  const html = sampleHtml();
-  assert.match(html, /html,body\{width:800px;height:480px;margin:0;overflow:hidden/);
-  assert.match(html, /\.page\{width:800px;height:480px;overflow:hidden/);
-  assert.match(html, /\.main\{height:355px;[^}]*overflow:hidden/);
-});
-
-test("reset credit badge is rendered when available", () => {
-  const html = sampleHtml();
-  assert.match(html, /RESET 2/);
-});
-
-function sampleHtml() {
-  const { normalizeQuotaData } = modules().normalizer;
-  const { renderDashboardHtml } = modules().render;
-  return renderDashboardHtml(normalizeQuotaData(account(), multiBucketLimits(), { now }));
-}
-
 function testConfig() {
   return {
     bindHost: "127.0.0.1",
     port: 0,
-    accessToken: "test-token-12345678901234567890123456789012",
     deviceToken: "test-device-token-12345678901234567890123456789012",
     codexPath: "/bin/false",
     nodePath: process.execPath,

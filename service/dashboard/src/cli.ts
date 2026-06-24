@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadConfig, saveConfig, generateAccessToken, ensureAppSupportDir } from "./cache";
+import { loadConfig, saveConfig, generateDeviceToken, ensureAppSupportDir } from "./cache";
 import { detectDefaultNetwork } from "./network";
 import { configPath, launchAgentPath, logsDir, LABEL } from "./paths";
 import type { DashboardConfig } from "./types";
@@ -17,17 +17,11 @@ async function main(): Promise<void> {
     case "ensure-config":
       await ensureConfig(args);
       return;
-    case "print-url":
-      await printUrl();
-      return;
     case "status":
       await printStatus();
       return;
     case "update-lan-ip":
       await updateLanIp();
-      return;
-    case "regenerate-token":
-      await regenerateToken();
       return;
     case "print-device-url":
       await printDeviceUrl();
@@ -40,9 +34,6 @@ async function main(): Promise<void> {
       return;
     case "healthcheck":
       await healthcheck();
-      return;
-    case "write-iframe-test":
-      await writeIframeTest(args);
       return;
     default:
       throw new Error(`Unknown command: ${command ?? "(missing)"}`);
@@ -69,8 +60,7 @@ async function ensureConfig(args: Map<string, string>): Promise<void> {
   const config: DashboardConfig = {
     bindHost: existing?.bindHost ?? bindHost,
     port: existing?.port ?? port,
-    accessToken: existing?.accessToken ?? generateAccessToken(),
-    deviceToken: existing?.deviceToken ?? generateAccessToken(),
+    deviceToken: existing?.deviceToken ?? generateDeviceToken(),
     codexPath,
     nodePath,
     projectDir,
@@ -83,15 +73,10 @@ async function ensureConfig(args: Map<string, string>): Promise<void> {
   await saveConfig(config);
   if (existing && existing.bindHost !== bindHost) {
     console.error(
-      `WARNING: existing config keeps bindHost ${existing.bindHost}; current default LAN IPv4 is ${bindHost}. Run scripts/update-lan-ip.sh to change the SenseCraft URL.`,
+      `WARNING: existing config keeps bindHost ${existing.bindHost}; current default LAN IPv4 is ${bindHost}. Run scripts/update-lan-ip.sh to change the device API URL.`,
     );
   }
   printConfigSummary(config);
-}
-
-async function printUrl(): Promise<void> {
-  const config = await loadConfig();
-  console.log(`http://${config.bindHost}:${config.port}/e1002/${config.accessToken}`);
 }
 
 async function printDeviceUrl(): Promise<void> {
@@ -122,7 +107,7 @@ async function printStatus(): Promise<void> {
       console.log(`warning=configured_ip_differs_from_current_ip`);
     }
   }
-  console.log(`url=http://${config.bindHost}:${config.port}/e1002/${config.accessToken}`);
+  console.log(`device_url=http://${config.bindHost}:${config.port}/api/device/${config.deviceToken}`);
 
   try {
     const health = await fetch(`http://${config.bindHost}:${config.port}/healthz`, { cache: "no-store" });
@@ -136,13 +121,13 @@ async function printStatus(): Promise<void> {
 async function updateLanIp(): Promise<void> {
   const config = await loadConfig();
   const network = await detectDefaultNetwork();
-  const oldUrl = `http://${config.bindHost}:${config.port}/e1002/${config.accessToken}`;
+  const oldUrl = `http://${config.bindHost}:${config.port}/api/device/${config.deviceToken}`;
   config.bindHost = network.ipv4;
   config.networkInterface = network.interfaceName;
   config.interfaceMac = network.mac;
   config.updatedAt = new Date().toISOString();
   await saveConfig(config);
-  const newUrl = `http://${config.bindHost}:${config.port}/e1002/${config.accessToken}`;
+  const newUrl = `http://${config.bindHost}:${config.port}/api/device/${config.deviceToken}`;
   console.log(`old_url=${oldUrl}`);
   console.log(`new_url=${newUrl}`);
   console.log(`interface=${network.interfaceName}`);
@@ -150,17 +135,9 @@ async function updateLanIp(): Promise<void> {
   console.log(`mac=${network.mac}`);
 }
 
-async function regenerateToken(): Promise<void> {
-  const config = await loadConfig();
-  config.accessToken = generateAccessToken();
-  config.updatedAt = new Date().toISOString();
-  await saveConfig(config);
-  console.log(`new_url=http://${config.bindHost}:${config.port}/e1002/${config.accessToken}`);
-}
-
 async function regenerateDeviceToken(): Promise<void> {
   const config = await loadConfig();
-  config.deviceToken = generateAccessToken();
+  config.deviceToken = generateDeviceToken();
   config.updatedAt = new Date().toISOString();
   await saveConfig(config);
   console.log(`new_device_url=http://${config.bindHost}:${config.port}/api/device/${config.deviceToken}`);
@@ -226,29 +203,10 @@ async function healthcheck(): Promise<void> {
   }
 }
 
-async function writeIframeTest(args: Map<string, string>): Promise<void> {
-  const out = required(args, "out");
-  const config = await loadConfig();
-  const url = `http://${config.bindHost}:${config.port}/e1002/${config.accessToken}`;
-  const html = `<!doctype html>
-<html>
-<body style="margin:0">
-  <iframe
-    src="${url}"
-    style="width:800px;height:480px;border:0">
-  </iframe>
-</body>
-</html>
-`;
-  await fs.mkdir(path.dirname(out), { recursive: true });
-  await fs.writeFile(out, html, { mode: 0o600 });
-  console.log(`iframe_test=${out}`);
-}
-
 function printConfigSummary(config: DashboardConfig): void {
   console.log(`config=${configPath()}`);
   console.log(`cache_dir=${path.dirname(configPath())}`);
-  console.log(`url=http://${config.bindHost}:${config.port}/e1002/${config.accessToken}`);
+  console.log(`device_url=http://${config.bindHost}:${config.port}/api/device/${config.deviceToken}`);
 }
 
 function parseArgs(args: string[]): Map<string, string> {

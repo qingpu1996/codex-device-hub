@@ -73,7 +73,7 @@ done
 
 "$NODE_BIN" "$PROJECT_DIR/dist/src/cli.js" healthcheck
 
-FINAL_URL="$("$NODE_BIN" "$PROJECT_DIR/dist/src/cli.js" print-url)"
+FINAL_URL="$("$NODE_BIN" "$PROJECT_DIR/dist/src/cli.js" print-device-url)"
 
 echo
 echo "Installed $LABEL"
@@ -83,7 +83,7 @@ echo "Node: $NODE_BIN"
 echo "Interface: $DEFAULT_INTERFACE"
 echo "IPv4: $LAN_IP"
 echo "MAC: $MAC_ADDRESS"
-echo "URL: $FINAL_URL"
+echo "Device API URL: $FINAL_URL"
 echo "Logs: $STDOUT_LOG"
 echo "Logs: $STDERR_LOG"
 echo

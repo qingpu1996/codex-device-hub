@@ -1,6 +1,6 @@
 # codex-quota-dashboard
 
-局域网内运行的 Codex 套餐额度仪表盘，保留 Seeed Studio reTerminal E1002 的 SenseCraft HMI HTML Widget 实时 iframe 页面，同时提供给自定义 Arduino 固件使用的设备 JSON API。
+局域网内运行的 Codex 套餐额度服务，只给 reTerminal E1002 自定义固件提供脱敏 JSON API 和食谱图片接口。E1002 固件不加载 HTML、CSS、JavaScript、iframe 或浏览器页面，只获取数据并在设备端用原生绘图 API 渲染。
 
 ## 架构
 
@@ -10,7 +10,7 @@
 Codex CLI 登录状态
   -> codex app-server
   -> Mac mini 局域网 HTTP 服务
-  -> SenseCraft HTML Widget iframe / E1002 JSON 固件
+  -> E1002 JSON / raw image 固件客户端
   -> reTerminal E1002
 ```
 
@@ -22,7 +22,7 @@ Codex CLI 登录状态
 - `account/rateLimits/read`
 - `account/usage/read`
 
-页面请求只读取内存缓存，不会在每次 HTTP 访问时重新启动 App Server。最后一次成功的脱敏数据会写入：
+HTTP 请求只读取内存缓存，不会在每次访问时重新启动 App Server。最后一次成功的脱敏数据会写入：
 
 ```text
 ~/Library/Application Support/CodexQuotaDashboard/cache.json
@@ -34,27 +34,17 @@ Codex CLI 登录状态
 
 项目不会读取、复制或输出 `~/.codex/auth.json`。认证细节只由 `codex app-server` 自己处理，本服务只接收 `account/read`、`account/rateLimits/read` 和 `account/usage/read` 返回后归一化出的脱敏字段。
 
-页面和 API 不显示邮箱、账户 ID、OAuth Token、Cookie 或原始 RPC 响应。错误 token 和未知路径统一返回 404。
+API 不显示邮箱、账户 ID、OAuth Token、Cookie、device token 或原始 RPC 响应。错误 token 和未知路径统一返回 404。
 
-## SenseCraft iframe 原理
+## 设备 API
 
-当前 SenseCraft HMI HTML Widget 会由设备侧 iframe 实时加载 URL。只要 E1002 与 Mac mini 在同一个局域网，E1002 就能直接访问：
-
-```text
-http://<Mac局域网IPv4>:19527/e1002/<随机Token>
-```
-
-这个项目不需要 Cloudflare Tunnel、公网入口、端口转发、域名或 HTTPS。它只监听配置中的局域网 IPv4。
-
-## E1002 自定义固件 JSON API
-
-自定义 Arduino 固件不要加载 HTML、CSS、JavaScript、iframe 或浏览器。设备只请求独立 token 保护的 JSON：
+主接口：
 
 ```text
 http://<Mac局域网IP>:19527/api/device/<deviceToken>
 ```
 
-`deviceToken` 与浏览器页面 token 独立，长度至少 32 字节随机值。接口只返回屏幕绘制所需字段：
+`deviceToken` 是至少 32 字节安全随机值，保存在本机私有配置中，不提交到 Git。接口只返回屏幕绘制所需字段：
 
 ```json
 {
@@ -78,11 +68,23 @@ http://<Mac局域网IP>:19527/api/device/<deviceToken>
 }
 ```
 
-接口带 `Cache-Control: no-store`，错误 token 返回 404，不返回邮箱、账户 ID、OAuth Token、Cookie 或原始 RPC。
+接口带 `Cache-Control: no-store`，错误 token 返回 404，响应体受大小限制。
 
-## 食谱 Excel
+## 食谱图片 API
 
-食谱页是可选功能。默认读取：
+食谱页使用同一个设备 token：
+
+```text
+GET /api/device/<deviceToken>/meal/today
+GET /api/device/<deviceToken>/meal/today.raw
+GET /api/device/<deviceToken>/meal/today.png
+```
+
+- `meal/today` 返回图片元数据。
+- `meal/today.raw` 返回 E1002 固件使用的 800x480 4bpp 原始图像。
+- `meal/today.png` 只用于浏览器或本机调试预览。
+
+默认读取：
 
 ```text
 ~/Documents/codex-quota-dashboard/meal-plan.xlsx
@@ -109,12 +111,14 @@ scripts/install-launchd.sh
 - 安装 npm 依赖。
 - 构建 TypeScript。
 - 创建 `~/Library/Application Support/CodexQuotaDashboard/config.json`。
-- 生成至少 32 字节随机 token。
+- 生成设备 API 使用的随机 `deviceToken`。
 - 安装并启动当前用户级 LaunchAgent：
 
 ```text
 ~/Library/LaunchAgents/com.qingpu.codex-quota-dashboard.plist
 ```
+
+脚本最后会打印设备 API URL。完整 URL 包含 token，只应填入本机固件配置或用于局域网验证，不要提交到 Git。
 
 ## 启动、停止、重启
 
@@ -150,15 +154,15 @@ scripts/logs.sh follow
 scripts/update-lan-ip.sh
 ```
 
-更新后需要把新的 URL 填回 SenseCraft。
+更新后需要把新的设备 API URL 填回固件本地配置。
 
-## 重新生成访问 Token
+## 重新生成设备 Token
 
 ```bash
-scripts/regenerate-token.sh
+scripts/regenerate-device-token.sh
 ```
 
-这会改变最终页面 URL。重新生成后需要更新 SenseCraft HTML Widget。
+这会改变设备 API URL。重新生成后需要更新 `firmware/e1002/include/secrets.h` 或后续配网页面中的 API 设置。
 
 ## Codex 重新登录后的处理
 
@@ -168,7 +172,7 @@ scripts/regenerate-token.sh
 scripts/restart.sh
 ```
 
-服务失败期间会显示最后一次成功缓存，并标记“数据可能已过期”。
+服务失败期间会返回最后一次成功缓存，并标记数据可能已过期。
 
 ## macOS 防火墙
 
@@ -178,47 +182,30 @@ scripts/restart.sh
 
 ## E1002 与 Mac 不同网时
 
-如果 E1002 和 Mac mini 不在同一个二层/三层可达网络，iframe 会空白或加载失败。常见原因：
+如果 E1002 和 Mac mini 不在同一个二层/三层可达网络，设备 API 会访问失败。常见原因：
 
 - E1002 在 Guest Wi-Fi。
 - 路由器开启 AP Isolation。
 - VLAN 防火墙阻止设备访问 Mac。
 - Mac IP 已改变。
-- SenseCraft 中 token 仍是旧 token。
+- 固件中的 device token 仍是旧 token。
 - macOS 防火墙拒绝 Node 入站连接。
 
 ## 为什么建议 DHCP 地址保留
 
-SenseCraft 中填写的是固定 IPv4 URL。若 Mac mini 的 IPv4 改变，E1002 仍会请求旧地址。建议在路由器中为 Mac 默认接口的 MAC 地址设置 DHCP 地址保留。
+固件中填写的是固定 IPv4 URL。若 Mac mini 的 IPv4 改变，E1002 仍会请求旧地址。建议在路由器中为 Mac 默认接口的 MAC 地址设置 DHCP 地址保留。
 
 优先使用 IPv4 而不是 `mac-mini.local`，是因为嵌入式设备和隔离 Wi-Fi 对 mDNS 的支持不稳定，而 IPv4 地址在同网段内更可预测。
 
-## SenseCraft 配置步骤
+## 手机验证局域网 API
 
-1. 确认 E1002 与 Mac mini 连接到同一个局域网。
-2. 打开 SenseCraft HMI。
-3. 创建或选择 reTerminal E1002 的 800×480 页面。
-4. 添加 HTML Widget。
-5. 选择当前支持的实时 Web URL / iframe 加载模式。
-6. 填写：
+手机连接与 E1002 相同的 Wi-Fi，访问：
 
 ```text
-http://<Mac局域网IP>:19527/e1002/<随机Token>
+http://<Mac局域网IP>:19527/api/device/<deviceToken>
 ```
 
-7. 将 Widget 调整为铺满整个画布。
-8. Preview。
-9. Apply 或 Deploy 到 E1002。
-10. 刷新间隔设为 5 分钟。
-11. 若显示空白，依次检查：
-    - Mac 服务状态
-    - URL 是否正确
-    - E1002 是否与 Mac 同网
-    - Mac 防火墙
-    - 路由器是否开启 AP Isolation
-    - E1002 是否位于 Guest Wi-Fi
-    - Token 是否发生变化
-    - Mac IP 是否改变
+能看到 JSON 说明局域网、macOS 防火墙和 token 都基本正确。不要把完整 URL 发到公网聊天或提交到仓库。
 
 ## 开发验证
 
@@ -226,4 +213,4 @@ http://<Mac局域网IP>:19527/e1002/<随机Token>
 npm test
 ```
 
-测试覆盖 JSONL 分段输入、JSON-RPC 关联和超时、当前和旧版额度字段、primary/secondary、套餐解析、clamp、去重、窗口识别、缓存回退、token 路由、脱敏、iframe 头、CSP、固定 800×480 页面和无外部资源约束。
+测试覆盖 JSONL 分段输入、JSON-RPC 关联和超时、当前和旧版额度字段、primary/secondary、套餐解析、token 用量、clamp、去重、窗口识别、缓存回退、设备 token 路由、脱敏、响应大小限制、旧页面路由 404、食谱图片接口和 no-store 头。

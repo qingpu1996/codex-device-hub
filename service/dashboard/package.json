@@ -1,7 +1,7 @@
 {
   "name": "codex-quota-dashboard",
   "version": "1.0.0",
-  "description": "LAN-only Codex quota dashboard for SenseCraft E1002 iframe widgets.",
+  "description": "LAN-only Codex quota JSON and meal image service for reTerminal E1002 firmware.",
   "main": "dist/src/server.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",

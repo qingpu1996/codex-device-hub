@@ -20,7 +20,7 @@ export async function loadConfig(home?: string): Promise<DashboardConfig> {
   }
   const config = parsed as DashboardConfig;
   if (!config.deviceToken) {
-    config.deviceToken = generateAccessToken();
+    config.deviceToken = generateDeviceToken();
     await saveConfig(config, home);
   }
   return config;
@@ -53,7 +53,7 @@ export async function saveCachedData(data: SanitizedDashboardData, home?: string
   await writeJsonPrivate(cachePath(home), data);
 }
 
-export function generateAccessToken(): string {
+export function generateDeviceToken(): string {
   return randomBytes(32).toString("hex");
 }
 

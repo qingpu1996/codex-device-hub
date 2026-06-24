@@ -63,7 +63,7 @@ async function main(): Promise<void> {
         server!.listen(config.port, config.bindHost, () => resolve());
       });
       process.stdout.write(
-        `[${new Date().toISOString()}] Codex quota dashboard listening on http://${config.bindHost}:${config.port}/e1002/[token]\n`,
+        `[${new Date().toISOString()}] Codex quota dashboard listening on http://${config.bindHost}:${config.port}/api/device/[token]\n`,
       );
       break;
     } catch (error) {
@@ -80,7 +80,7 @@ async function warnOnIpMismatch(configuredIp: string): Promise<void> {
     const current = await detectDefaultNetwork();
     if (current.ipv4 !== configuredIp) {
       process.stderr.write(
-        `[${new Date().toISOString()}] WARNING: configured bindHost ${configuredIp} differs from current default LAN IPv4 ${current.ipv4} on ${current.interfaceName}; run scripts/update-lan-ip.sh if you want to change the SenseCraft URL.\n`,
+        `[${new Date().toISOString()}] WARNING: configured bindHost ${configuredIp} differs from current default LAN IPv4 ${current.ipv4} on ${current.interfaceName}; run scripts/update-lan-ip.sh if you want to change the device API URL.\n`,
       );
     }
   } catch (error) {

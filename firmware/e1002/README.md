@@ -14,11 +14,9 @@ Codex CLI
   -> deep sleep
 ```
 
-The E1002 does not run HTML, CSS, JavaScript, iframe content, or a browser for the dashboard itself. Native JSON rendering is smaller, avoids SenseCraft HTML runtime limits, lets the ESP32-S3 control Wi-Fi lifetime, and makes deep sleep predictable.
+The E1002 does not run HTML, CSS, JavaScript, iframe content, or a browser for the dashboard itself. Native JSON rendering is smaller, avoids embedded browser runtime limits, lets the ESP32-S3 control Wi-Fi lifetime, and makes deep sleep predictable.
 
 The only HTML in this firmware is a temporary local setup portal served by the E1002 SoftAP for entering Wi-Fi and Mac API settings.
-
-The existing Mac SSR browser page is separate and is not removed by this firmware.
 
 ## Pages
 
@@ -27,7 +25,7 @@ Current fixed page registry:
 | Slot | PageId | Policy | Description |
 | --- | --- | --- | --- |
 | 1 | `CodexQuota` | `PeriodicData` | Codex quota dashboard from the Mac JSON API. |
-| 2 | `TodayMeal` | `Static` | Placeholder only. It does not load recipe data, SD files, images, calories, ingredients, or any network resource. |
+| 2 | `TodayMeal` | `Static` | Meal image page. It fetches one 800 x 480 raw image from the Mac service for the current internal meal slot. |
 
 Every page shows a dynamic page indicator in the bottom-right corner:
 
@@ -268,4 +266,4 @@ To restore the official SenseCraft HMI flow:
 4. Reboot the E1002.
 5. Deploy a SenseCraft HMI page again.
 
-Keep this firmware project and the Mac SSR page separate. Restoring SenseCraft does not require deleting the Mac dashboard service.
+Restoring SenseCraft does not require deleting the Mac dashboard service, but this custom firmware only needs the JSON and image APIs.

@@ -409,7 +409,7 @@ static void test_meal_endpoint_url_builder() {
   char url[288];
   assert(buildMealEndpointUrl("http://192.0.2.10:19527/api/device/example-device-token", "meal/today", url, sizeof(url)));
   assert(strcmp(url, "http://192.0.2.10:19527/api/device/example-device-token/meal/today") == 0);
-  assert(!buildMealEndpointUrl("http://192.0.2.10:19527/e1002/token", "meal/today", url, sizeof(url)));
+  assert(!buildMealEndpointUrl("http://192.0.2.10:19527/legacy/token", "meal/today", url, sizeof(url)));
 }
 
 static void test_meal_meta_parses_valid_json() {

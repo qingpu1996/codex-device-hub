@@ -1,7 +1,6 @@
 export interface DashboardConfig {
   bindHost: string;
   port: number;
-  accessToken: string;
   deviceToken: string;
   codexPath: string;
   nodePath: string;

@@ -40,13 +40,13 @@ scripts/install-launchd.sh
 
 The service exposes:
 
-- `GET /e1002/<pageToken>` for the legacy SenseCraft iframe page.
 - `GET /api/device/<deviceToken>` for native firmware JSON.
 - `GET /api/device/<deviceToken>/meal/today`
 - `GET /api/device/<deviceToken>/meal/today.raw`
 - `GET /api/device/<deviceToken>/meal/today.png`
 
-The device token is separate from the browser page token.
+There is no browser page token and no HTML dashboard route. The firmware uses
+the device token directly and renders the screen natively.
 
 ## Firmware
 
