@@ -177,7 +177,7 @@ const char* quotaErrorName(QuotaError error) {
 #ifndef QUOTA_HOST_TEST
 #include <HTTPClient.h>
 #include <WiFi.h>
-#include "secrets.h"
+#include "provisioning.h"
 
 static constexpr uint32_t kHttpTimeoutMs = 8000;
 static constexpr int kHttpRetryCount = 2;
@@ -195,27 +195,21 @@ static bool contentTypeIsJson(const char* contentType) {
   return strstr(contentType, "application/json") != nullptr;
 }
 
-void logQuotaApiTarget() {
-  const char* url = QUOTA_API_URL;
-  const char* host = strstr(url, "://");
-  host = host ? host + 3 : url;
-  const char* path = strchr(host, '/');
-  Serial1.print("[api] target    : ");
-  if (!path) {
-    Serial1.println(host);
-    return;
-  }
-  for (const char* p = host; p < path; ++p) {
-    Serial1.print(*p);
-  }
-  Serial1.println();
+void logQuotaApiTarget(const char* apiUrl) {
+  char target[80];
+  formatApiTarget(apiUrl, target, sizeof(target));
+  Serial1.printf("[api] target    : %s\n", target);
 }
 
-FetchResult fetchQuotaPayload() {
+FetchResult fetchQuotaPayload(const char* apiUrl) {
   FetchResult result{};
   result.ok = false;
   result.error = QuotaError::None;
   result.httpStatus = 0;
+  if (!apiUrl || apiUrl[0] == '\0') {
+    result.error = QuotaError::MissingField;
+    return result;
+  }
 
   for (int attempt = 1; attempt <= kHttpRetryCount; ++attempt) {
     HTTPClient http;
@@ -224,7 +218,7 @@ FetchResult fetchQuotaPayload() {
     http.setReuse(false);
     http.collectHeaders(headers, 1);
 
-    if (!http.begin(QUOTA_API_URL)) {
+    if (!http.begin(apiUrl)) {
       result.error = QuotaError::MissingField;
       http.end();
       continue;

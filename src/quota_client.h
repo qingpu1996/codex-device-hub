@@ -71,6 +71,6 @@ struct FetchResult {
   QuotaPayload payload;
 };
 
-FetchResult fetchQuotaPayload();
-void logQuotaApiTarget();
+FetchResult fetchQuotaPayload(const char* apiUrl);
+void logQuotaApiTarget(const char* apiUrl);
 #endif

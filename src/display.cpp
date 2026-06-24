@@ -152,3 +152,48 @@ void renderSetupError(const char* category) {
   Serial1.printf("[display] setup error update done in %lu ms\n", static_cast<unsigned long>(millis() - start));
   epaper.sleep();
 }
+
+void renderWifiSetupPage(const char* apSsid, const char* apPassword, const char* setupUrl, const char* reason) {
+  epaper.begin();
+  epaper.fillScreen(TFT_WHITE);
+  epaper.drawRect(0, 0, 800, 480, TFT_BLACK);
+  epaper.drawRect(3, 3, 794, 474, TFT_BLACK);
+
+  text("WIFI SETUP", 28, 24, 4, TFT_BLUE);
+  text("PORTAL", 772, 24, 3, TFT_BLACK, TR_DATUM);
+  epaper.drawLine(20, 72, 780, 72, TFT_BLACK);
+
+  centered("CONNECT TO E1002 WIFI", 400, 120, 3, TFT_BLACK);
+  centered(apSsid, 400, 175, 4, TFT_BLUE);
+  centered("PASSWORD", 400, 230, 2, TFT_BLACK);
+  centered(apPassword, 400, 265, 3, TFT_BLACK);
+  centered("OPEN", 400, 320, 2, TFT_BLACK);
+  centered(setupUrl, 400, 355, 3, TFT_GREEN);
+
+  text("REASON", 34, 430, 2, TFT_BLACK);
+  text(reason ? reason : "setup", 148, 430, 2, TFT_RED);
+
+  Serial1.println("[display] wifi setup update start");
+  Serial1.flush();
+  const uint32_t start = millis();
+  epaper.update();
+  Serial1.printf("[display] wifi setup update done in %lu ms\n", static_cast<unsigned long>(millis() - start));
+  epaper.sleep();
+}
+
+void renderProvisioningSavedPage() {
+  epaper.begin();
+  epaper.fillScreen(TFT_WHITE);
+  epaper.drawRect(0, 0, 800, 480, TFT_BLACK);
+  epaper.drawRect(3, 3, 794, 474, TFT_BLACK);
+  centered("SETUP SAVED", 400, 165, 6, TFT_GREEN);
+  centered("REBOOTING", 400, 250, 4, TFT_BLACK);
+  centered("DO NOT REMOVE POWER", 400, 320, 2, TFT_BLUE);
+
+  Serial1.println("[display] provisioning saved update start");
+  Serial1.flush();
+  const uint32_t start = millis();
+  epaper.update();
+  Serial1.printf("[display] provisioning saved update done in %lu ms\n", static_cast<unsigned long>(millis() - start));
+  epaper.sleep();
+}

@@ -16,6 +16,7 @@ c++ -std=c++17 \
   -I "$ARDUINOJSON_DIR" \
   src/input_manager.cpp \
   src/page_manager.cpp \
+  src/provisioning.cpp \
   src/quota_client.cpp \
   test/firmware_logic_tests.cpp \
   -o /tmp/codex-quota-e1002-firmware-tests

@@ -4,6 +4,7 @@
 
 #include "input_manager.h"
 #include "page_manager.h"
+#include "provisioning.h"
 #include "quota_client.h"
 
 static const char* normalJson =
@@ -276,6 +277,61 @@ static void test_page_switch_requires_refresh_by_page_change() {
   assert(pages.currentSlot() != before);
 }
 
+static void test_provisioning_accepts_valid_fields() {
+  ProvisioningError error = ProvisioningError::None;
+  assert(validateProvisioningFields("Home24", "password123",
+                                    "http://192.168.5.156:19527/api/device/abc123",
+                                    &error));
+  assert(error == ProvisioningError::None);
+}
+
+static void test_provisioning_rejects_missing_ssid() {
+  ProvisioningError error = ProvisioningError::None;
+  assert(!validateProvisioningFields("", "password123",
+                                     "http://192.168.5.156:19527/api/device/abc123",
+                                     &error));
+  assert(error == ProvisioningError::MissingSsid);
+}
+
+static void test_provisioning_rejects_https_api() {
+  ProvisioningError error = ProvisioningError::None;
+  assert(!validateProvisioningFields("Home24", "password123",
+                                     "https://example.com/api/device/abc123",
+                                     &error));
+  assert(error == ProvisioningError::ApiUrlScheme);
+}
+
+static void test_provisioning_rejects_non_device_api() {
+  ProvisioningError error = ProvisioningError::None;
+  assert(!validateProvisioningFields("Home24", "password123",
+                                     "http://192.168.5.156:19527/",
+                                     &error));
+  assert(error == ProvisioningError::ApiUrlPath);
+}
+
+static void test_provisioning_rejects_long_password() {
+  char password[80];
+  memset(password, 'x', sizeof(password));
+  password[sizeof(password) - 1] = '\0';
+  ProvisioningError error = ProvisioningError::None;
+  assert(!validateProvisioningFields("Home24", password,
+                                     "http://192.168.5.156:19527/api/device/abc123",
+                                     &error));
+  assert(error == ProvisioningError::PasswordTooLong);
+}
+
+static void test_format_api_target_hides_path_and_token() {
+  char target[80];
+  formatApiTarget("http://192.168.5.156:19527/api/device/very-secret-token", target, sizeof(target));
+  assert(strcmp(target, "192.168.5.156:19527") == 0);
+}
+
+static void test_copy_provisioning_string_rejects_truncation() {
+  char dest[4];
+  assert(!copyProvisioningString(dest, sizeof(dest), "abcdef"));
+  assert(strcmp(dest, "abc") == 0);
+}
+
 int main() {
   test_normal_json();
   test_schema_wrong();
@@ -309,6 +365,13 @@ int main() {
   test_page_one_and_two_hash_differ_with_same_content();
   test_static_page_timer_does_not_require_network_policy();
   test_page_switch_requires_refresh_by_page_change();
+  test_provisioning_accepts_valid_fields();
+  test_provisioning_rejects_missing_ssid();
+  test_provisioning_rejects_https_api();
+  test_provisioning_rejects_non_device_api();
+  test_provisioning_rejects_long_password();
+  test_format_api_target_hides_path_and_token();
+  test_copy_provisioning_string_rejects_truncation();
   puts("firmware logic tests passed");
   return 0;
 }

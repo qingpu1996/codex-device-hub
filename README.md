@@ -14,7 +14,9 @@ Codex CLI
   -> deep sleep
 ```
 
-The E1002 does not run HTML, CSS, JavaScript, iframe content, or a browser. Native JSON rendering is smaller, avoids SenseCraft HTML runtime limits, lets the ESP32-S3 control Wi-Fi lifetime, and makes deep sleep predictable.
+The E1002 does not run HTML, CSS, JavaScript, iframe content, or a browser for the dashboard itself. Native JSON rendering is smaller, avoids SenseCraft HTML runtime limits, lets the ESP32-S3 control Wi-Fi lifetime, and makes deep sleep predictable.
+
+The only HTML in this firmware is a temporary local setup portal served by the E1002 SoftAP for entering Wi-Fi and Mac API settings.
 
 The existing Mac SSR browser page is separate and is not removed by this firmware.
 
@@ -105,22 +107,57 @@ brew install platformio
 pio --version
 ```
 
-## Configure Secrets
+## Wi-Fi Setup Portal
 
-Copy the example and edit the private file:
+The firmware stores Wi-Fi and API settings in ESP32 NVS. If no usable settings exist, or the first Wi-Fi connection fails before any valid page has been rendered, the device starts a local setup portal.
+
+Manual setup portal entry from deep sleep:
+
+1. Hold the left button `KEY2 / GPIO5` for about 1.2 seconds.
+2. Release the left button after the `WIFI SETUP` page appears.
+3. Connect a computer or phone to:
+
+```text
+SSID: Codex-E1002-Setup
+Password: codex-e1002
+```
+
+Open:
+
+```text
+http://192.168.4.1
+```
+
+If the device is not sleeping, hold the left button and press `RESET`, then keep holding left until the `WIFI SETUP` page appears.
+
+The page lets you enter:
+
+- 2.4GHz Wi-Fi SSID.
+- Wi-Fi password.
+- Mac device API URL, for example `http://192.168.x.x:19527/api/device/...`.
+
+The full API URL is never pre-filled into the HTML page. If the device already has a stored API URL, the page shows only the current host and port; leave the API URL field blank to keep the existing target. After saving, the device reboots and uses the saved NVS settings.
+
+The setup portal is local to the E1002 AP. It is not a cloud service and does not expose the dashboard publicly. Do not use the setup portal on an untrusted public radio environment because the form is local HTTP.
+
+## Optional Bootstrap Secrets
+
+`include/secrets.h` is now optional. It can be used as a local bootstrap fallback while developing, but production setup should use the portal above.
+
+Copy the example only if you want local compile-time defaults:
 
 ```bash
 cp include/secrets.example.h include/secrets.h
 ```
 
-`include/secrets.h` must contain:
+`include/secrets.h` may contain:
 
 ```cpp
 #pragma once
 
-#define WIFI_SSID "YOUR_2_4_GHZ_WIFI"
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
-#define QUOTA_API_URL "http://192.168.x.x:19527/api/device/YOUR_DEVICE_TOKEN"
+#define WIFI_SSID ""
+#define WIFI_PASSWORD ""
+#define QUOTA_API_URL ""
 ```
 
 Do not commit `include/secrets.h`. The firmware logs only the API host and port, not the full URL or token. It never prints the Wi-Fi password.
@@ -161,7 +198,7 @@ Serial runs at 115200 baud over the reTerminal carrier UART:
 Serial1.begin(115200, SERIAL_8N1, 44, 43);
 ```
 
-Logs include firmware version, wake reason, Wi-Fi result, Mac API host and port, HTTP status, schemaVersion, quota percentages, refresh decision, deep sleep entry, and next wake interval.
+Logs include firmware version, wake reason, setup source, Wi-Fi result, Mac API host and port, HTTP status, schemaVersion, quota percentages, refresh decision, deep sleep entry, and next wake interval.
 
 ## Manual Refresh
 
@@ -180,6 +217,8 @@ After each cycle the firmware:
 If a button remains LOW for the release timeout, the firmware logs a warning and uses timer-only sleep for that cycle to avoid repeated immediate wakeups.
 
 The ePaper keeps the last image without power. If network/API fails after a valid page was displayed, the firmware keeps the old image and sleeps again. If no valid page has ever been displayed, it renders one `SETUP ERROR` page without showing tokens or protected URLs.
+
+If no usable Wi-Fi/API settings exist, or first Wi-Fi connection fails before any valid page exists, the firmware renders the `WIFI SETUP` page and starts the setup portal instead of repeatedly sleeping with a blank configuration.
 
 ## Adding Page 3
 
@@ -201,7 +240,7 @@ Next stage plan: replace the Page 2 placeholder renderer with a "read today's me
 
 ## LAN Checks
 
-The Mac IP should be stable. Set a DHCP Reservation for the Mac mini, or update `QUOTA_API_URL` whenever the Mac IP changes.
+The Mac IP should be stable. Set a DHCP Reservation for the Mac mini, or update the stored API URL through the setup portal whenever the Mac IP changes.
 
 From a phone on the same Wi-Fi, open:
 

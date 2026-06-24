@@ -7,13 +7,14 @@
 #include "input_manager.h"
 #include "page_manager.h"
 #include "power.h"
+#include "provisioning.h"
 #include "quota_client.h"
-#include "secrets.h"
 
-static constexpr const char* FIRMWARE_VERSION = "codex-e1002-quota-0.3.2";
+static constexpr const char* FIRMWARE_VERSION = "codex-e1002-quota-0.4.0";
 static constexpr int kDbgRx = 44;
 static constexpr int kDbgTx = 43;
 static constexpr uint32_t kWifiConnectTimeoutMs = 15000;
+static constexpr uint32_t kConfigPortalHoldMs = 1200;
 static constexpr uint32_t kPersistentMagic = 0xE1002C0DUL;
 static constexpr uint16_t kPersistentVersion = 1;
 
@@ -38,9 +39,9 @@ static void resetPersistentState() {
   uiState.currentPageSlot = PageManager::kDefaultSlot;
 }
 
-static bool connectWifi() {
+static bool connectWifi(const DeviceSettings& settings) {
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(settings.wifiSsid, settings.wifiPassword);
   const uint32_t start = millis();
   Serial1.print("[wifi] connecting");
   while (WiFi.status() != WL_CONNECTED && millis() - start < kWifiConnectTimeoutMs) {
@@ -180,6 +181,21 @@ static void logAction(const InputAction& action) {
                  static_cast<unsigned>(action.clickCount));
 }
 
+static void startProvisioningAndSleep(const DeviceSettings& current, const char* reason) {
+  Serial1.printf("[setup] portal reason=%s\n", reason ? reason : "setup");
+  renderWifiSetupPage(kProvisioningApSsid, kProvisioningApPassword, kProvisioningApUrl, reason);
+  const bool saved = runProvisioningPortal(current, reason);
+  if (saved) {
+    renderProvisioningSavedPage();
+    Serial1.println("[setup] saved; restarting");
+    Serial1.flush();
+    delay(1000);
+    ESP.restart();
+  }
+  Serial1.println("[setup] portal timeout; sleeping");
+  enterDeepSleep();
+}
+
 void setup() {
   Serial1.begin(115200, SERIAL_8N1, kDbgRx, kDbgTx);
   delay(20);
@@ -199,12 +215,31 @@ void setup() {
   InputAction action{InputActionType::None, 0, 0};
   RefreshReason reason = coldBootLike ? RefreshReason::ColdBoot : RefreshReason::Timer;
   PhysicalButton physicalButton = PhysicalButton::None;
+  DeviceSettings settings{};
+  const bool hasSettings = loadDeviceSettings(&settings);
+  bool forcePortal = false;
+  if (coldBootLike && digitalRead(PIN_KEY2_LEFT) == LOW) {
+    const uint32_t holdStart = millis();
+    while (digitalRead(PIN_KEY2_LEFT) == LOW && millis() - holdStart < kConfigPortalHoldMs) {
+      delay(10);
+    }
+    forcePortal = digitalRead(PIN_KEY2_LEFT) == LOW;
+  }
 
   if (!coldBootLike && wakeCause == ESP_SLEEP_WAKEUP_EXT1) {
     physicalButton = buttonFromWakeMask(wakeMask);
     if (physicalButton == PhysicalButton::Key2Left) {
-      action = collectDirectPageClicksFromWake(static_cast<uint8_t>(pages.pageCount()));
-      reason = RefreshReason::DirectNavigation;
+      const uint32_t holdStart = millis();
+      while (digitalRead(PIN_KEY2_LEFT) == LOW && millis() - holdStart < kConfigPortalHoldMs) {
+        delay(10);
+      }
+      if (digitalRead(PIN_KEY2_LEFT) == LOW) {
+        forcePortal = true;
+        reason = RefreshReason::DirectNavigation;
+      } else {
+        action = collectDirectPageClicksFromWake(static_cast<uint8_t>(pages.pageCount()));
+        reason = RefreshReason::DirectNavigation;
+      }
     } else {
       action = actionFromWakeMask(wakeMask);
       if (physicalButton == PhysicalButton::Key0Green) {
@@ -228,8 +263,15 @@ void setup() {
   Serial1.printf("[sys] psram      : %lu/%lu kB free/total\n",
                  static_cast<unsigned long>(ESP.getFreePsram() / 1024),
                  static_cast<unsigned long>(ESP.getPsramSize() / 1024));
-  logQuotaApiTarget();
+  Serial1.printf("[setup] config    : %s%s\n",
+                 hasSettings ? "present" : "missing",
+                 settings.fromBootstrap ? " bootstrap" : "");
+  logQuotaApiTarget(settings.quotaApiUrl);
   logPageRegistry();
+
+  if (forcePortal) {
+    startProvisioningAndSleep(settings, "button");
+  }
 
   if (!coldBootLike && wakeCause == ESP_SLEEP_WAKEUP_EXT1) {
     Serial1.printf("[INPUT] physical=%s\n", physicalButtonName(physicalButton));
@@ -273,18 +315,28 @@ void setup() {
   QuotaPayload payload{};
   QuotaPayload* payloadPtr = nullptr;
   if (needsWifi) {
-    bool wifiConnected = connectWifi();
+    if (!hasSettings) {
+      startProvisioningAndSleep(settings, "missing-config");
+    }
+    bool wifiConnected = connectWifi(settings);
     if (!wifiConnected) {
+      if (!uiState.hasRenderedValidData) {
+        shutdownWifi();
+        startProvisioningAndSleep(settings, "wifi-failed");
+      }
       handleFailure("wifi");
       shutdownWifi();
       enterDeepSleep();
     }
 
-    FetchResult fetched = fetchQuotaPayload();
+    FetchResult fetched = fetchQuotaPayload(settings.quotaApiUrl);
     shutdownWifi();
 
     if (!fetched.ok) {
       const char* category = fetched.httpStatus == 0 ? quotaErrorName(fetched.error) : "api";
+      if (!uiState.hasRenderedValidData && fetched.error == QuotaError::MissingField) {
+        startProvisioningAndSleep(settings, "api-config");
+      }
       handleFailure(category);
       enterDeepSleep();
     }
