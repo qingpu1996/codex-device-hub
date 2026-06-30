@@ -154,7 +154,7 @@ static bool open_record_codec(void)
   set_codec_board_type("S3_LCD_3_49");
   codec_init_cfg_t codec_cfg = {
     .in_mode = CODEC_I2S_MODE_TDM,
-    .out_mode = CODEC_I2S_MODE_TDM,
+    .out_mode = CODEC_I2S_MODE_NONE,
     .in_use_tdm = false,
     .reuse_dev = false,
   };
@@ -182,7 +182,7 @@ static bool open_record_codec(void)
     return false;
   }
 
-  ESP_LOGI(TAG, "audio ready sample_rate=%d bits=%d channels=%d max_ms=%d",
+  DECK_LOGI(TAG, "audio ready sample_rate=%d bits=%d channels=%d max_ms=%d",
            CODEX_DECK_AUDIO_SAMPLE_RATE,
            CODEX_DECK_AUDIO_BITS_PER_SAMPLE,
            CODEX_DECK_AUDIO_CHANNELS,
@@ -221,7 +221,7 @@ bool deckAudioStart(DeckAudioStats *stats)
   g_stats.wavBytes = kWavHeaderBytes;
   g_started_ms = millis();
   g_state = DeckAudioState::Recording;
-  ESP_LOGI(TAG, "record start free_heap=%u free_psram=%u",
+  DECK_LOGI(TAG, "record start free_heap=%u free_psram=%u",
            static_cast<unsigned>(esp_get_free_heap_size()),
            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
   copy_stats(stats);
@@ -293,7 +293,7 @@ bool deckAudioStop(DeckAudioStats *stats)
   g_stats.silenceLikely = g_stats.rms < 150 && g_stats.peak < 800;
   write_wav_header();
   g_state = DeckAudioState::Captured;
-  ESP_LOGI(TAG, "record stop duration_ms=%u pcm=%u wav=%u peak=%d rms=%d clipped=%u silence=%d max=%d",
+  DECK_LOGI(TAG, "record stop duration_ms=%u pcm=%u wav=%u peak=%d rms=%d clipped=%u silence=%d max=%d",
            static_cast<unsigned>(g_stats.durationMs),
            static_cast<unsigned>(g_stats.pcmBytes),
            static_cast<unsigned>(g_stats.wavBytes),

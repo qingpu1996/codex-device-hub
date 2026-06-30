@@ -26,6 +26,10 @@
 
 #include "../esp_codec_dev/include/esp_codec_dev.h"
 
+#ifndef DECK_ENABLE_SDCARD
+#define DECK_ENABLE_SDCARD 0
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -117,6 +121,7 @@ esp_codec_dev_handle_t get_record_handle(void);
  */
 void *get_i2c_bus_handle(uint8_t port);
 
+#if DECK_ENABLE_SDCARD
 /**
  * @brief  Mount SDCard
  *
@@ -139,6 +144,7 @@ void *get_sdcard_handle(void);
  * @brief  Unmount SDCard
  */
 void unmount_sdcard(void);
+#endif
 
 /**
  * @brief  Deinitialize codec

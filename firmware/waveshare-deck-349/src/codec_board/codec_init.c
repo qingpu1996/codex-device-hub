@@ -9,14 +9,17 @@
 #include "../esp_codec_dev/include/esp_codec_dev.h"
 #include "../esp_codec_dev/include/esp_codec_dev_defaults.h"
 #include "../esp_codec_dev/include/esp_codec_dev_os.h"
+#include "app_config.h"
 #include "codec_board.h"
 #include "codec_init.h"
 #include "esp_log.h"
 #include "dummy_codec.h"
 #include "driver/i2c_master.h"
+#if DECK_ENABLE_SDCARD
 #include "esp_vfs_fat.h"
 #include "driver/sdmmc_host.h"
 #include "driver/sdmmc_defs.h"
+#endif
 
 #define TAG "CODEC_INIT"
 
@@ -167,6 +170,8 @@ static int _i2s_init(uint8_t port, esp_codec_dev_type_t dev_type, codec_init_cfg
         input = false;
     }
     if (input == false && output == false) {
+        free(i2s_keep[port]);
+        i2s_keep[port] = NULL;
         return 0;
     }
 #ifdef SOC_I2S_SUPPORTS_TDM
@@ -343,15 +348,20 @@ int init_codec(codec_init_cfg_t *cfg)
         ESP_LOGI(TAG, "Already initialized");
         return 0;
     }
+    bool want_out = cfg->out_mode != CODEC_I2S_MODE_NONE;
+    bool want_in = cfg->in_mode != CODEC_I2S_MODE_NONE;
+#if !DECK_AUDIO_ENABLE_OUTPUT
+    want_out = false;
+#endif
     codec_cfg_t out_cfg = { 0 };
     codec_cfg_t in_cfg = { 0 };
     bool has_out = false;
     bool has_in = false;
     // Get codec configuration
-    if (get_out_codec_cfg(&out_cfg) == 0) {
+    if (want_out && get_out_codec_cfg(&out_cfg) == 0) {
         has_out = true;
     }
-    if (get_in_codec_cfg(&in_cfg) == 0) {
+    if (want_in && get_in_codec_cfg(&in_cfg) == 0) {
         has_in = true;
     }
     if (has_out == false && has_in == false) {
@@ -362,19 +372,21 @@ int init_codec(codec_init_cfg_t *cfg)
     check_i2c_inited(0);
     // Init i2c and i2s
     bool same_i2s = (has_in && has_out && out_cfg.i2s_port == in_cfg.i2s_port);
-    ESP_LOGI(TAG, "in:%d out:%d port: %d", has_in, has_out, out_cfg.i2s_port == in_cfg.i2s_port);
+    ESP_LOGI(TAG, "in:%d out:%d same_i2s:%d", has_in, has_out, same_i2s);
+#if DECK_AUDIO_ENABLE_OUTPUT
     if (has_out) {
         if (check_i2c_inited(out_cfg.i2c_port) < 0) {
             ESP_LOGE(TAG, "Fail to int i2c: %d", out_cfg.i2c_port);
             return -1;
         }
-        ESP_LOGI(TAG, "Success to int i2c: %d", in_cfg.i2c_port);
+        ESP_LOGI(TAG, "Success to int i2c: %d", out_cfg.i2c_port);
         if (_i2s_init(out_cfg.i2s_port, same_i2s ? ESP_CODEC_DEV_TYPE_IN_OUT : ESP_CODEC_DEV_TYPE_OUT, cfg)) {
             ESP_LOGE(TAG, "Fail to init i2s: %d", out_cfg.i2s_port);
             return -1;
         }
-        ESP_LOGI(TAG, "Success to init i2s: %d", in_cfg.i2s_port);
+        ESP_LOGI(TAG, "Success to init i2s: %d", out_cfg.i2s_port);
     }
+#endif
     if (has_in) {
         if (check_i2c_inited(in_cfg.i2c_port) < 0) {
             ESP_LOGE(TAG, "Fail to int i2c: %d", in_cfg.i2c_port);
@@ -391,6 +403,7 @@ int init_codec(codec_init_cfg_t *cfg)
     codec_res.gpio_if = audio_codec_new_gpio();
 
     bool same_codec = same_i2s && (in_cfg.codec_type == out_cfg.codec_type);
+#if DECK_AUDIO_ENABLE_OUTPUT
     if (has_out) {
         audio_codec_i2s_cfg_t i2s_out_cfg = {
             .port = out_cfg.i2s_port,
@@ -453,6 +466,7 @@ int init_codec(codec_init_cfg_t *cfg)
             }
         }
     }
+#endif
     if (same_codec == false && has_in) {
         if (same_i2s == false) {
             audio_codec_i2s_cfg_t i2s_in_cfg = {
@@ -576,6 +590,7 @@ void deinit_codec(void)
     codec_res.inited = false;
 }
 
+#if DECK_ENABLE_SDCARD
 static sdmmc_card_t *card = NULL;
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
@@ -683,3 +698,4 @@ void unmount_sdcard(void)
         card = NULL;
     }
 }
+#endif
