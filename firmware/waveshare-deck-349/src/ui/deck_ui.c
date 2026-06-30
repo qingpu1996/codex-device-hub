@@ -95,7 +95,7 @@ static lv_obj_t *create_action_button(lv_obj_t *screen, int y, lv_color_t bg, lv
 {
   lv_obj_t *button = lv_button_create(screen);
   lv_obj_set_size(button, 156, 44);
-  lv_obj_set_style_radius(button, 6, 0);
+  lv_obj_set_style_radius(button, 0, 0);
   lv_obj_set_style_bg_color(button, bg, 0);
   lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(button, 1, 0);
@@ -124,7 +124,7 @@ void deck_ui_create(void)
   lv_label_set_text(title, "CODEX\nDECK");
   lv_obj_set_style_text_color(title, lv_color_hex(0xf7f2df), 0);
   lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
   lv_obj_set_width(title, DECK_SCREEN_WIDTH);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
 
@@ -147,7 +147,7 @@ void deck_ui_create(void)
     lv_obj_t *panel = lv_obj_create(screen);
     slot_panels[i] = panel;
     lv_obj_set_size(panel, panel_w, panel_h);
-    lv_obj_set_style_radius(panel, 6, 0);
+    lv_obj_set_style_radius(panel, 0, 0);
     lv_obj_set_style_border_width(panel, 1, 0);
     lv_obj_set_style_border_color(panel, lv_color_hex(0xe5edf0), 0);
     lv_obj_set_style_outline_width(panel, 0, 0);
@@ -179,7 +179,7 @@ void deck_ui_create(void)
 
   record_button = lv_button_create(screen);
   lv_obj_set_size(record_button, 156, 72);
-  lv_obj_set_style_radius(record_button, 6, 0);
+  lv_obj_set_style_radius(record_button, 0, 0);
   lv_obj_set_style_bg_color(record_button, lv_color_hex(0x66b5a7), 0);
   lv_obj_set_style_bg_opa(record_button, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(record_button, 1, 0);
@@ -211,7 +211,7 @@ void deck_ui_create(void)
 
   text_panel = lv_obj_create(screen);
   lv_obj_set_size(text_panel, 160, 430);
-  lv_obj_set_style_radius(text_panel, 6, 0);
+  lv_obj_set_style_radius(text_panel, 0, 0);
   lv_obj_set_style_border_width(text_panel, 1, 0);
   lv_obj_set_style_border_color(text_panel, lv_color_hex(0x40515a), 0);
   lv_obj_set_style_bg_color(text_panel, lv_color_hex(0x151d21), 0);
