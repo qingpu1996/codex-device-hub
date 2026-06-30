@@ -1,6 +1,7 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { DashboardConfig, HealthStatus, SanitizedDashboardData } from "./types";
 import { handleAdminConfigRequest, type AdminConfigOptions } from "./adminConfig";
+import { DeckService, DeckStore, handleDeckHttpRequest, UnavailableCodexDeckClient } from "./deck";
 import { buildDevicePayload, DEVICE_MAX_RESPONSE_BYTES } from "./devicePayload";
 import {
   buildDeviceMealPayload,
@@ -19,15 +20,18 @@ export interface DashboardStateProvider {
   getHealth(): HealthStatus;
 }
 
-export interface DashboardHttpServerOptions extends AdminConfigOptions {}
+export interface DashboardHttpServerOptions extends AdminConfigOptions {
+  deckService?: DeckService;
+}
 
 export function createDashboardHttpServer(
   config: DashboardConfig,
   provider: DashboardStateProvider,
   options: DashboardHttpServerOptions = {},
 ): http.Server {
+  const deckService = options.deckService ?? new DeckService(new DeckStore(), new UnavailableCodexDeckClient());
   return http.createServer((request, response) => {
-    void handleRequest(config, provider, request, response, options).catch((error) => {
+    void handleRequest(config, provider, request, response, { ...options, deckService }).catch((error) => {
       console.error(`[http] request failed: ${String(error)}`);
       if (!response.headersSent) {
         response.setHeader("Cache-Control", CACHE_CONTROL);
@@ -49,6 +53,10 @@ async function handleRequest(
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? config.bindHost}`);
 
   if (await handleAdminConfigRequest(config, request, response, options)) {
+    return;
+  }
+
+  if (options.deckService && await handleDeckHttpRequest(options.deckService, request, response, url)) {
     return;
   }
 

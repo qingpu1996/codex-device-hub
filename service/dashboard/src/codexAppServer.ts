@@ -79,6 +79,13 @@ export class CodexAppServerMonitor extends EventEmitter {
     };
   }
 
+  async requestAppServer(method: string, params?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<unknown> {
+    if (!this.client || !this.connected) {
+      throw new Error("Codex App Server is disconnected");
+    }
+    return this.client.request(method, params, timeoutMs);
+  }
+
   async refreshNow(): Promise<void> {
     await this.refreshSnapshot();
   }
@@ -157,7 +164,6 @@ export class CodexAppServerMonitor extends EventEmitter {
             "thread/started",
             "turn/started",
             "item/started",
-            "item/completed",
             "rawResponseItem/completed",
           ],
         },
@@ -216,6 +222,7 @@ export class CodexAppServerMonitor extends EventEmitter {
   }
 
   private handleNotification(notification: JsonRpcNotification): void {
+    this.emit("notification", notification);
     if (notification.method === "account/rateLimits/updated") {
       void this.refreshSnapshot().catch((error) => {
         this.lastError = "App Server 通知同步失败，显示最后一次成功缓存";

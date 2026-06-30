@@ -22,6 +22,9 @@ service/dashboard/cache.json
 firmware/e1002/.pio/
 firmware/e1002/include/secrets.h
 firmware/e1002/.local/
+firmware/waveshare-deck-349/.pio/
+firmware/waveshare-deck-349/include/secrets.h
+firmware/waveshare-deck-349/.local/
 
 # Temporary files
 *.tmp

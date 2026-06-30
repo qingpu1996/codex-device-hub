@@ -1,10 +1,11 @@
 {
   "name": "codex-quota-dashboard",
   "version": "1.0.0",
-  "description": "LAN-only Codex quota JSON and meal image service for reTerminal E1002 firmware.",
+  "description": "LAN-only Codex quota, E1002, and Codex Deck device hub service.",
   "main": "dist/src/server.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "dev": "npm run build && node dist/src/server.js",
     "start": "node dist/src/server.js",
     "test": "npm run build && node --test test/*.test.mjs",
     "preview": "npm run build && node dist/src/server.js"

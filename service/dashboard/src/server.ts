@@ -1,6 +1,8 @@
 import type { Server } from "node:http";
 import { loadConfig } from "./cache";
 import { CodexAppServerMonitor } from "./codexAppServer";
+import { AppServerCodexDeckClient, DeckService, DeckStore } from "./deck";
+import { AutoDeckSpeechClient } from "./deckStt";
 import { createDashboardHttpServer } from "./httpServer";
 import { detectDefaultNetwork, isIpAssigned } from "./network";
 import type { HealthStatus } from "./types";
@@ -10,9 +12,11 @@ const NETWORK_RETRY_MS = 5_000;
 const FRESH_AFTER_MS = 150_000;
 
 async function main(): Promise<void> {
-  const config = await loadConfig();
+  const storedConfig = await loadConfig();
+  const config = runtimeConfig(storedConfig);
   const monitor = new CodexAppServerMonitor(config);
   await monitor.start();
+  const deckService = new DeckService(new DeckStore(), new AppServerCodexDeckClient(monitor, config.projectDir), new AutoDeckSpeechClient());
 
   const healthProvider = {
     getData: () => monitor.getData(),
@@ -56,7 +60,7 @@ async function main(): Promise<void> {
       continue;
     }
 
-    server = createDashboardHttpServer(config, healthProvider);
+    server = createDashboardHttpServer(config, healthProvider, { deckService });
     try {
       await new Promise<void>((resolve, reject) => {
         server!.once("error", reject);
@@ -73,6 +77,18 @@ async function main(): Promise<void> {
       await sleep(NETWORK_RETRY_MS);
     }
   }
+}
+
+function runtimeConfig<T extends { bindHost: string; port: number }>(config: T): T {
+  const devPort = Number(process.env.DECK_DEV_PORT ?? "");
+  if (!Number.isFinite(devPort) || devPort <= 0) {
+    return config;
+  }
+  return {
+    ...config,
+    bindHost: process.env.DECK_DEV_HOST || "127.0.0.1",
+    port: Math.floor(devPort),
+  };
 }
 
 async function warnOnIpMismatch(configuredIp: string): Promise<void> {

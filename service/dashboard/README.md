@@ -1,6 +1,6 @@
 # codex-quota-dashboard
 
-这是运行在 Mac 上的局域网服务，给 reTerminal E1002 固件提供 Codex 额度 JSON、token 用量摘要、今日食谱图片和天气 JSON。服务不提供 HTML dashboard，不提供 iframe 页面，也不需要公网入口。
+这是运行在 Mac 上的局域网服务，给 reTerminal E1002 固件提供 Codex 额度 JSON、token 用量摘要、今日食谱图片和天气 JSON，同时给 Waveshare Codex Deck 提供 text-only slot 派发、WAV 上传保存、Stage F 本地 STT job 和正式 Codex send API。服务不提供 HTML dashboard，不提供 iframe 页面，也不需要公网入口。
 
 ## 职责
 
@@ -10,6 +10,11 @@
 - 从本地 Excel 生成今日食谱图片。
 - 按本机配置请求天气源，并把结果整理成适合 E1002 的小 JSON。
 - 提供带独立 `adminToken` 的本地模块配置页。
+- 提供带独立 `deckToken` 的 Codex Deck API。
+- 为 Deck 固定 5 个 slot，并让每个 slot 复用自己的 Codex thread。
+- 接收 Deck 上传的 raw PCM WAV，校验后保存到本机私有目录。
+- 使用可插拔本地 STT provider 把 audio job 转为 transcript；未配置 provider 时返回 `STT UNAVAILABLE`。
+- 通过 `/codex/send` 在用户确认 transcript 后把文字派发到对应 slot。
 - 只在局域网 IPv4 上提供 E1002 固件接口。
 - 失败时保留最近一次成功缓存。
 
@@ -21,7 +26,11 @@ Codex CLI 登录状态
   -> Node.js LaunchAgent
   -> /api/device/<deviceToken>
   -> /api/device/<deviceToken>/weather
-  -> E1002 固件
+  -> /api/deck/<deckToken>/debug/text
+  -> /api/deck/<deckToken>/audio/utterance
+  -> /api/deck/<deckToken>/audio/:audioJobId/transcribe
+  -> /api/deck/<deckToken>/codex/send
+  -> E1002 固件 / Waveshare Deck 固件
 ```
 
 服务调用的 Codex RPC：
@@ -31,8 +40,11 @@ Codex CLI 登录状态
 - `account/read`
 - `account/rateLimits/read`
 - `account/usage/read`
+- `thread/start`
+- `thread/resume`
+- `turn/start`
 
-HTTP 请求只读取内存缓存，不会在每次请求时重新启动 Codex App Server。
+额度 HTTP 请求只读取内存缓存，不会在每次请求时重新启动 Codex App Server。Deck text-only 派发复用同一个长期运行的 App Server 子进程，不另起一套 Codex 后端。
 
 ## 安装和运行
 
@@ -86,6 +98,18 @@ scripts/uninstall-launchd.sh
 ```
 
 `uninstall-launchd.sh` 只卸载 LaunchAgent，不删除配置和缓存。
+
+本轮开发验证可以使用 dev 端口，避免影响正式 19527 LaunchAgent：
+
+```bash
+DECK_DEV_PORT=19600 npm run dev
+```
+
+也可以显式指定开发绑定地址：
+
+```bash
+DECK_DEV_HOST=127.0.0.1 DECK_DEV_PORT=19600 npm run dev
+```
 
 ## 本地配置页
 
@@ -175,6 +199,110 @@ GET http://<Mac-IP>:19527/api/device/<deviceToken>
 ```text
 GET /e1002/<token>       -> 404
 GET /api/e1002/<token>   -> 404
+```
+
+## Deck API
+
+Deck 使用独立 `deckToken`，不会复用 `deviceToken` 或 `adminToken`。私有文件保存在：
+
+```text
+~/Library/Application Support/CodexQuotaDashboard/deck/config.json
+~/Library/Application Support/CodexQuotaDashboard/deck/slots.json
+~/Library/Application Support/CodexQuotaDashboard/deck/jobs/
+~/Library/Application Support/CodexQuotaDashboard/deck/audio/
+```
+
+接口：
+
+```text
+GET  /api/deck/<deckToken>/health
+GET  /api/deck/<deckToken>/slots
+GET  /api/deck/<deckToken>/slots/:slotId
+POST /api/deck/<deckToken>/debug/text
+GET  /api/deck/<deckToken>/jobs/:jobId
+POST /api/deck/<deckToken>/audio/utterance?slotId=<slotId>
+GET  /api/deck/<deckToken>/audio/:audioJobId
+POST /api/deck/<deckToken>/audio/:audioJobId/transcribe
+POST /api/deck/<deckToken>/codex/send
+```
+
+错误 `deckToken` 返回 404。设备响应不返回完整 token、Codex auth、OAuth token、Cookie、OpenAI API key、`auth.json` 路径或受保护 URL。
+
+第一版固定 5 个 slot：
+
+| Slot | 标题 | 说明 |
+| --- | --- | --- |
+| `general` | GENERAL | Quick questions |
+| `sisyphus` | SISYPHUS | Game project |
+| `sisyphus-review` | SISYPHUS REVIEW | PR review / QA |
+| `e1002` | E1002 | E-paper dashboard |
+| `deck` | DECK | Touch deck |
+
+`POST /debug/text` 只接受 JSON text input，返回 job id 后由调用方轮询 `/jobs/:jobId`。设备主界面不再显示 `SEND TEST`，正式语音任务走 `/codex/send`。
+
+`POST /audio/utterance` 只接受 raw WAV body：
+
+- `Content-Type: audio/wav`、`audio/wave` 或 `audio/x-wav`。
+- 最大 8MB。
+- 必须是 `RIFF/WAVE`、PCM `fmt` chunk 和 `data` chunk。
+- 支持 1-2 channels、8/16/24/32-bit PCM、采样率不超过 192kHz。
+- 时长最短 300ms，最长 25s。
+- 成功后保存 `<audioJobId>.wav` 和 `<audioJobId>.json`。
+- 响应只返回脱敏 metadata，不返回本地路径或 token。
+
+Stage F 服务端路径：
+
+- 固件仍只上传 WAV，不在设备端做 STT。
+- `POST /audio/:audioJobId/transcribe` 创建 `stt_job_<24 hex>`，通过 `/jobs/:jobId` 轮询。
+- 默认自动检测本机 `mlx-whisper`、`mlx_whisper` Python module、`whisper.cpp` 的 `whisper-cli/main`、以及 generic `whisper` CLI。
+- 当前验证过的本机配置是私有 venv 中的 `mlx-whisper-python`。对设备上传的 PCM WAV，adapter 会直接用 Python `wave`/`scipy` 读取、转 mono 16k 后喂给 `mlx_whisper`；如果系统安装了 `ffmpeg`，服务仍会优先用它生成临时 16k mono WAV。
+- 如果没有 provider，STT job 变成 `failed`，`errorMessage` 为 `STT UNAVAILABLE`，服务不崩溃。
+- `POST /codex/send` 创建 `codex_job_<24 hex>`，只在用户确认 transcript 后调用。
+- 同一 slot 继续复用 `activeThreadId`，不同 slot 使用不同 thread。
+- 仍不实现 TTS、WebSocket、SSE、OpenAI API、ChatKit 或 ChatGPT 网页自动化。
+
+STT 私有配置可选文件：
+
+```text
+~/Library/Application Support/CodexQuotaDashboard/deck/stt.json
+```
+
+默认配置等价于：
+
+```json
+{
+  "provider": "auto",
+  "language": "zh",
+  "model": "small",
+  "timeoutMs": 120000,
+  "maxDurationMs": 25000
+}
+```
+
+`whisper.cpp` 如果不在标准 PATH 中，需要在 `stt.json` 提供 `modelPath`。当前不会自动安装模型或下载大依赖。
+
+本机已验证的 `mlx-whisper-python` 示例配置：
+
+```json
+{
+  "provider": "mlx-whisper-python",
+  "language": "zh",
+  "model": "small",
+  "timeoutMs": 180000,
+  "maxDurationMs": 25000,
+  "force16kMono": true,
+  "pythonPath": "~/Library/Application Support/CodexQuotaDashboard/deck/stt-venv/bin/python"
+}
+```
+
+音频辅助脚本：
+
+```bash
+scripts/deck-audio-list.sh
+scripts/deck-audio-info.sh <audioJobId>
+scripts/deck-audio-play.sh <audioJobId>
+scripts/deck-audio-transcribe.sh <audioJobId>
+scripts/deck-audio-clean.sh [days]
 ```
 
 ## 天气模块 API

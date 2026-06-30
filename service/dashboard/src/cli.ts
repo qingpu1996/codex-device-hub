@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { defaultMealConfig, defaultWeatherConfig, loadConfig, saveConfig, generateDeviceToken, ensureAppSupportDir, normalizeMealConfig, normalizeWeatherConfig } from "./cache";
+import { DeckStore, maskToken } from "./deck";
 import { detectDefaultNetwork } from "./network";
 import { configPath, launchAgentPath, logsDir, LABEL } from "./paths";
 import type { DashboardConfig } from "./types";
@@ -120,6 +121,7 @@ async function printStatus(): Promise<void> {
   }
   console.log(`device_url=http://${config.bindHost}:${config.port}/api/device/${config.deviceToken}`);
   console.log(`admin_config_url=http://${config.bindHost}:${config.port}/admin/${config.adminToken}/config`);
+  await printDeckStatus(config);
   console.log(`meal_enabled=${config.meal.enabled ? "yes" : "no"}`);
   console.log(`meal_excel_path=${config.meal.excelPath}`);
   console.log(`weather_location=${config.weather.locationName}`);
@@ -132,6 +134,30 @@ async function printStatus(): Promise<void> {
     console.log(await health.text());
   } catch (error) {
     console.log(`health_error=${String(error)}`);
+  }
+}
+
+async function printDeckStatus(config: DashboardConfig): Promise<void> {
+  try {
+    const store = new DeckStore();
+    const deckConfig = await store.ensureConfig();
+    await store.ensureSlots();
+    const maskedToken = maskToken(deckConfig.deckToken);
+    const maskedBase = `http://${config.bindHost}:${config.port}/api/deck/${maskedToken}`;
+    const realBase = `http://${config.bindHost}:${config.port}/api/deck/${deckConfig.deckToken}`;
+    console.log(`deck_enabled=yes`);
+    console.log(`deck_health_url=${maskedBase}/health`);
+    console.log(`deck_slots_url=${maskedBase}/slots`);
+    console.log(`deck_debug_text_curl=curl -s -X POST ${maskedBase}/debug/text -H 'Content-Type: application/json' -d '{"slotId":"general","text":"hello"}'`);
+    try {
+      const response = await fetch(`${realBase}/health`, { cache: "no-store" });
+      console.log(`deck_health_http=${response.status}`);
+      console.log(await response.text());
+    } catch (error) {
+      console.log(`deck_health_error=${String(error)}`);
+    }
+  } catch (error) {
+    console.log(`deck_status_error=${String(error)}`);
   }
 }
 
