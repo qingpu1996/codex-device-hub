@@ -91,4 +91,5 @@ const char* refreshPolicyName(RefreshPolicy policy);
 const char* refreshReasonName(RefreshReason reason);
 uint32_t mealPlaceholderHash();
 uint32_t weatherPlaceholderHash();
+uint32_t composePagePayloadHash(PageId pageId, uint32_t contentHash, uint32_t batteryHash);
 uint32_t pageDisplayHash(PageId pageId, uint32_t pagePayloadHash, const char* indicator);

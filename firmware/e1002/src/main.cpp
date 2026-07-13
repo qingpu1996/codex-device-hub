@@ -18,7 +18,7 @@
 #include "weather_client.h"
 #endif
 
-static constexpr const char* FIRMWARE_VERSION = "codex-e1002-quota-0.6.0";
+static constexpr const char* FIRMWARE_VERSION = "codex-e1002-quota-0.6.1";
 static constexpr int kDbgRx = 44;
 static constexpr int kDbgTx = 43;
 static constexpr uint32_t kWifiConnectTimeoutMs = 15000;
@@ -133,10 +133,6 @@ static void logWeatherSummary(const WeatherPayload& payload) {
                  static_cast<unsigned>(payload.dailyCount));
 }
 #endif
-
-static uint32_t mixHash(uint32_t hash, uint32_t value) {
-  return hash ^ (value + 0x9e3779b9UL + (hash << 6) + (hash >> 2));
-}
 
 static void logBatterySummary(const BatteryStatus& battery) {
   if (!battery.valid) {
@@ -257,9 +253,6 @@ static RefreshDecision decidePageRefresh(const PageManager& pages,
   }
   if (pageHash != uiState.lastDisplayedContentHash) {
     return {true, "display hash changed"};
-  }
-  if (uiState.cyclesSinceRender >= 12) {
-    return {true, "hourly forced refresh"};
   }
   return {false, "display hash unchanged"};
 }
@@ -627,7 +620,10 @@ void setup() {
     pagePayloadHash = weatherPlaceholderHash();
   }
 #endif
-  pagePayloadHash = mixHash(pagePayloadHash, batteryRenderHash(battery));
+  pagePayloadHash = composePagePayloadHash(
+    pages.currentPage().id,
+    pagePayloadHash,
+    batteryRenderHash(battery));
   const uint32_t pageHash = pages.currentPageContentHash(pagePayloadHash, indicator);
   RefreshDecision decision = ambiguousInput ?
     RefreshDecision{false, "ambiguous input"} :

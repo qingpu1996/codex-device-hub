@@ -150,7 +150,6 @@ uint32_t quotaRenderHash(const QuotaPayload& payload) {
     const QuotaWindow& window = payload.windows[i];
     hash = hashCString(hash, window.title);
     hash = hashInt64(hash, window.remainingPercent);
-    hash = hashInt64(hash, window.resetsAt);
     hash = hashCString(hash, window.resetText);
   }
   return hash;
@@ -166,9 +165,6 @@ RefreshDecision decideRefresh(const QuotaPayload& payload, const RenderState& st
   }
   if (hash != state.lastRenderHash) {
     return {true, "display hash changed"};
-  }
-  if (state.cyclesSinceRender >= 12) {
-    return {true, "hourly forced refresh"};
   }
   return {false, "display hash unchanged"};
 }

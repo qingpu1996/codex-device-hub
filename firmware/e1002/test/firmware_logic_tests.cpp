@@ -166,11 +166,33 @@ static void test_manual_wake_forces_refresh() {
   assert(decision.shouldRefresh);
 }
 
-static void test_twelve_cycles_force_refresh() {
+static void test_unchanged_quota_never_forces_periodic_refresh() {
   QuotaPayload payload = parseOk(normalJson);
-  RenderState state{quotaRenderHash(payload), 12, 0, true};
+  RenderState state{quotaRenderHash(payload), UINT16_MAX, 0, true};
   RefreshDecision decision = decideRefresh(payload, state, false);
-  assert(decision.shouldRefresh);
+  assert(!decision.shouldRefresh);
+}
+
+static void test_quota_hash_ignores_unrendered_reset_timestamp() {
+  QuotaPayload a = parseOk(normalJson);
+  QuotaPayload b = a;
+  b.windows[0].resetsAt += 300;
+  assert(quotaRenderHash(a) == quotaRenderHash(b));
+}
+
+static void test_quota_page_hash_ignores_battery_changes() {
+  const uint32_t contentHash = 1234;
+  const uint32_t batteryA = 111;
+  const uint32_t batteryB = 222;
+  assert(composePagePayloadHash(PageId::CodexQuota, contentHash, batteryA) ==
+         composePagePayloadHash(PageId::CodexQuota, contentHash, batteryB));
+#if FEATURE_MEAL
+  assert(composePagePayloadHash(PageId::TodayMeal, contentHash, batteryA) !=
+         composePagePayloadHash(PageId::TodayMeal, contentHash, batteryB));
+#elif FEATURE_WEATHER
+  assert(composePagePayloadHash(PageId::Weather, contentHash, batteryA) !=
+         composePagePayloadHash(PageId::Weather, contentHash, batteryB));
+#endif
 }
 
 static void test_page_count_matches_features() {
@@ -622,7 +644,9 @@ int main() {
   test_hash_usage_changes();
   test_network_failure_existing_valid_no_error_refresh();
   test_manual_wake_forces_refresh();
-  test_twelve_cycles_force_refresh();
+  test_unchanged_quota_never_forces_periodic_refresh();
+  test_quota_hash_ignores_unrendered_reset_timestamp();
+  test_quota_page_hash_ignores_battery_changes();
   test_page_count_matches_features();
   test_page_one_next_respects_registry();
   test_last_page_next_wraps_to_page_one();

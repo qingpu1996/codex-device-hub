@@ -207,6 +207,16 @@ uint32_t weatherPlaceholderHash() {
   return hash;
 }
 
+uint32_t composePagePayloadHash(PageId pageId, uint32_t contentHash, uint32_t batteryHash) {
+  // Periodic quota checks should only refresh the ePaper when quota content
+  // changes. ADC noise can move the battery label by 1% between wake cycles;
+  // the latest battery value is still drawn on manual/page-change refreshes.
+  if (pageId == PageId::CodexQuota) {
+    return contentHash;
+  }
+  return contentHash ^ (batteryHash + 0x9e3779b9UL + (contentHash << 6) + (contentHash >> 2));
+}
+
 uint32_t pageDisplayHash(PageId pageId, uint32_t pagePayloadHash, const char* indicator) {
   uint32_t hash = 2166136261UL;
   const uint8_t id = static_cast<uint8_t>(pageId);
